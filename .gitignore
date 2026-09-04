@@ -1,6 +1,9 @@
 # wszystko, co powstaje w czasie instalacji i budowy
 ephemeral/
 
+# backupowe kopie edytorow (plik~)
+*~
+
 # klasyczne resztki builda (na wypadek pracy poza ephemeral)
 build/
 pol2
