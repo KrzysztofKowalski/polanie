@@ -83,6 +83,12 @@ char *drewno[3];
 extern int color1, color2;
 extern char cel1[70], cel2[70];
 extern char drive[4];
+// PORT: Fix 18 (ikona naprawy przy pelnym hp) - ShowPanel zaglada do
+// zaznaczonego robotnika i celu jego rozkazu 8 (place/selectM/castle z
+// battle.cpp; mover.h daje klasy Mover1/Building).
+extern int place[MaxX][MaxY];
+extern class Castle castle[2];
+extern class Mover1 *selectM;
 //====== Deklaracje funkcji ==================
 void ShowBackground(void);
 void InitPicture(void);
@@ -1173,6 +1179,27 @@ void ShowPanel(int iff, int co, int max, int food,
                int button) // kto 0-oni 1-myb 2-mypost
 {
   int i;
+  // PORT: Fix 18 - ikona naprawy chowana przy pelnym hp. Gniazdo 3 z ikona
+  // topornika-odbudowy (buttons[8]) rysuje sie, gdy zaznaczony robotnik
+  // (selectM->type==1 -> co==1) ma aktywny rozkaz naprawy (command==8 ->
+  // button==3). Rozkaz zostaje na robotniku takze po naprawieniu budynku
+  // do pelna, wiec ikona swiecila dalej mimo zdrowego budynku. Cel rozwiazuje
+  // sie jak w Repare() (Fix C): place[xe][ye] 256..767 -> budynek
+  // castle[(p>>8)-1].b[(p&0xff)/10]. Gdy cel stoi (exist==1) i ma pelne hp,
+  // gniazdo 3 zostaje puste (bez ramki i ikony, jak przy braku opcji).
+  // Budynek uszkodzony, w budowie (exist 3/4) i ruina - bez zmian.
+  if (co == 1 && button == 3 && selectM != NULL) {
+    class Building *pol_b = NULL;
+    int pol_p = place[selectM->xe][selectM->ye];
+    if (pol_p > 255 && pol_p < 768) {
+      int pol_side = (pol_p >> 8) - 1;
+      int pol_nrb = (pol_p & 0xff) / 10;
+      if (pol_side >= 0 && pol_side < 2 && pol_nrb >= 0 && pol_nrb < 20)
+        pol_b = &castle[pol_side].b[pol_nrb];
+    }
+    if (pol_b != NULL && pol_b->exist == 1 && pol_b->hp >= pol_b->maxhp)
+      button = 0; // gniazdo puste: bez ramki i bez ikony naprawy
+  }
   for (i = 0; i < 6; i++) {
     PutImage13h(274, 18 + 20 * i, Buttons[3], 0);
   }

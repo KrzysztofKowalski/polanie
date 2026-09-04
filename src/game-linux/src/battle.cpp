@@ -2071,6 +2071,26 @@ void DispatchEvent() {
                   x, y, place[x][y], placeG[x][y], placeN[x][y], select.nrm,
                   select.nrb, grupa);
       }
+      // PORT: Fix 18 - pelny budynek odrzuca rozkaz naprawy. Klik PPM na
+      // budynek z exist==1 i hp>=maxhp nie wysyla rozkazu 8 (Fix C w Repare()
+      // i tak zatrzymalby robotnika dopiero na miejscu; tu klik jest pusty).
+      // Cel rozwiazuje sie jak w Repare()/Fix A: place[x][y] 256..767 ->
+      // budynek castle[(p>>8)-1].b[(p&0xff)/10]. Budowa (exist 3/4), ruina
+      // i budynek uszkodzony - bez zmian.
+      {
+        class Building *pol_b = NULL;
+        int pol_p = place[x][y];
+        if (pol_p > 255 && pol_p < 768) {
+          int pol_side = (pol_p >> 8) - 1;
+          int pol_nrb = (pol_p & 0xff) / 10;
+          if (pol_side >= 0 && pol_side < 2 && pol_nrb >= 0 && pol_nrb < 20)
+            pol_b = &castle[pol_side].b[pol_nrb];
+        }
+        if (pol_b != NULL && pol_b->exist == 1 && pol_b->hp >= pol_b->maxhp) {
+          mouseCommand = 1; // gasi tryb jak anulowanie celu (case 13)
+          return;
+        }
+      }
       mouseCommand = 1;
       zaznaczanie = 0;
       mouseMode = 1;
