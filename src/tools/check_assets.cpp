@@ -8,7 +8,7 @@
 //     - ./dysk/GRY/POLANIE, ../dysk/GRY/POLANIE, ../../dysk/GRY/POLANIE
 //   <baza>/DATA/      : W001.dat (krytyczny), I001.dat (opcjonalny - pelny
 //                       zestaw efektow jest w wersji CD), licznik W*/I*
-//   <baza>/GRAF/      : LEVEL.DAT (krytyczny) i LEVEL.INI (opcjonalny),
+//   <baza>/GRAF/      : LEVEL.DAT (krytyczny) i LEVEL.INI (krytyczny),
 //                       case-insensitive; dopuszczalny wariant
 //                       GRAF/levels/level.dat(+level.ini) albo LEVELS/
 //   <baza>/           : FONT.DAT (krytyczny), POST.DAT (opcjonalny)
@@ -211,7 +211,7 @@ int main(int argc, char **argv) {
 
   // teksty LEVEL.DAT/INI (GRAF/ albo warianty)
   report("LEVEL.DAT", znajdzLevel(baza, "LEVEL.DAT", &hit), true, hit);
-  report("LEVEL.INI", znajdzLevel(baza, "LEVEL.INI", &hit), false, hit);
+  report("LEVEL.INI", znajdzLevel(baza, "LEVEL.INI", &hit), true, hit);
 
   // ekstrakt
   printf("\n  [ekstrakt]\n");
