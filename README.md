@@ -27,14 +27,17 @@ kolorów), skalowanie robi okno/gamescope.
 - `libopenmpt` (muzyka S3M), `sfizz` (tylko tor MIDI+sfizz);
 - opcjonalnie: `glslangValidator` albo `glslc` (backend GPU), Google Test
   (testy jednostkowe);
-- do instalatora: `curl` albo `wget` oraz `unzip`.
+- do instalatora: `git`, `unzip` oraz `7z`/`7za` (pakiet `p7zip`) — wolumeny
+  ARJ instalacji dyskietkowej rozpakowuje `7z`.
 
-Debian/Ubuntu: `sudo apt install g++ make pkg-config libsdl3-dev libopenmpt-dev libsfizz-dev unzip curl`
+Debian/Ubuntu: `sudo apt install g++ make pkg-config libsdl3-dev libopenmpt-dev libsfizz-dev unzip p7zip-full`
+Arch/Omarchy: `sudo pacman -S --needed base-devel sdl3 libopenmpt sfizz unzip p7zip`
 
 ## Szybki start
 
 ```bash
 bash scripts/install.sh   # 1. pobiera dane gry z publicznego mirrora
+                          #    (instalka polanie.zip: wolumeny ARJ przez 7z)
                           #    i ekstrahuje je do ephemeral/
 bash scripts/build.sh     # 2. buduje port do ephemeral/ (binarka ephemeral/pol2)
 bash scripts/run.sh       # 3. uruchamia grę
@@ -66,6 +69,8 @@ official/
 
 Repozytorium **nie zawiera danych gry** — `scripts/install.sh` pobiera je
 z publicznego mirrora strony polanie.prv.pl i składa w `ephemeral/`.
+GRAF.DAT nie leży tam luzem: jest w instalacji dyskietkowej `polanie.zip`,
+której wolumeny `DATA.0NN` to archiwa ARJ (rozpakowuje je `7z`).
 
 ## Testy
 

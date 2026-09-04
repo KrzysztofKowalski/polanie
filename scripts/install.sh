@@ -4,22 +4,32 @@
 # Co robi (idempotentnie - mozna uruchamiac wielokrotnie):
 #   1. klonuje publiczny mirror polanie.prv.pl (git clone, nie curl/zip)
 #      do ephemeral/mirror/ (istniejacy klon jest odswiezany, nie klonowany od nowa),
-#   2. szuka GRAF.DAT (find, dowolna glebokosc) w klonie oraz w ephemeral/,
+#   2. szuka GRAF.DAT (find, dowolna glebokosc) w klonie oraz w ephemeral/;
+#      w klonie GRAF.DAT nie lezy luzem - lezy w instalce dyskietkowej
+#      polanie.zip, ktorej wolumeny DATA.0NN to archiwa ARJ. Jak szukanie
+#      luzem zawiedzie, skrypt rozpakowuje: polanie.zip (unzip) do
+#      ephemeral/dyskietki/, potem DATA.0NN (7z, p7zip) do
+#      ephemeral/dyskietki/rozpakowane/ i szuka GRAF.DAT ponownie
+#      (INSTALUJ.EXE to program DOS - nie uruchamiamy go),
 #   3. kopiuje dane do ephemeral/dysk/GRY/POLANIE,
 #   4. buduje ekstraktor (src/tools/polanie_extract.cpp),
 #   5. ekstrahuje zasoby (PNG / WAV / S3M / teksty) do ephemeral/extracted,
 #   6. buduje i uruchamia check_assets (raport kompletnosci danych).
 #
 # Opcjonalnie (bash scripts/install.sh --cd): dodatkowo rozpakowuje polanie_cd.zip
-# (pelna wersja CD, wziety z tego samego klonu) do ephemeral/cd/ - NIE skaluje sie z
-# ephemeral/dysk/; gra sama korzysta z cd/, gdy tor efektow czegos szuka.
+# (pelna wersja CD, wziety z tego samego klonu; GRAF.DAT jest w nim bezposrednio)
+# do ephemeral/cd/ - NIE skaluje sie z ephemeral/dysk/; gra sama korzysta z cd/,
+# gdy tor efektow czegos szuka.
 #
 # Wszystko laduje w ephemeral/ (mozna skasowac w calosci i uruchomic od nowa).
 # Repozytorium NIE zawiera danych gry - pobiera je ten skrypt.
 #
 # Uzycie:
-#   bash scripts/install.sh          # dane pelnej wersji (z mirrora polanie.prv.pl)
+#   bash scripts/install.sh          # dane pelnej wersji (z mirrora polanie.prv.pl;
+#                                    # instalka polanie.zip, ARJ przez 7z)
 #   bash scripts/install.sh --cd     # + wersja CD (polanie_cd.zip)
+#
+# Zaleznosci instalatora: git, g++, unzip, 7z albo 7za (pakiet p7zip).
 #
 # Zmienne srodowiskowe:
 #   POL_MIRROR_URL - nadpisanie URL-i klonu (domyslnie patrz nizej)
@@ -39,8 +49,10 @@ wzgledem() { printf '%s' "${1#"$ROOT/"}"; }
 # ---- zaleznosci -----------------------------------------------------------
 command -v git >/dev/null 2>&1 || die "Potrzebny git (Debian/Ubuntu: apt install git; Fedora: dnf install git)."
 command -v g++ >/dev/null 2>&1 || die "Potrzebny g++ (Debian/Ubuntu: apt install g++; Fedora: dnf install gcc-c++)."
-if [ "${1:-}" = "--cd" ]; then
-  command -v unzip >/dev/null 2>&1 || die "Potrzebny unzip dla --cd (Debian/Ubuntu: apt install unzip; Fedora: dnf install unzip)."
+# unzip i 7z (p7zip) sa potrzebne zawsze: instalka polanie.zip to wolumeny ARJ
+command -v unzip >/dev/null 2>&1 || die "Potrzebny unzip (Debian/Ubuntu: apt install unzip; Arch/Omarchy: pacman -S unzip; Fedora: dnf install unzip)."
+if ! command -v 7z >/dev/null 2>&1 && ! command -v 7za >/dev/null 2>&1; then
+  die "Potrzebny 7z albo 7za (pakiet p7zip) do rozpakowania wolumenow ARJ z polanie.zip (Debian/Ubuntu: apt install p7zip-full; Arch/Omarchy: pacman -S p7zip; Fedora: dnf install p7zip p7zip-plugins)."
 fi
 
 # ---- szukanie danych gry (GRAF.DAT) ---------------------------------------
@@ -88,19 +100,66 @@ klonuj_mirror() {
   fi
 }
 
+# ---- rozpakowanie instalki dyskietkowej (polanie.zip + ARJ) ----------------
+# W klonie GRAF.DAT lezy w instalce dyskietkowej polanie.zip: po unzip sa tam
+# wolumeny DATA.000..DATA.009 - archiwa ARJ (003-007 po ~1,4 MB to dyskietki).
+# INSTALUJ.EXE to program DOS - nie uruchamiamy go; wolumeny rozpakowuje 7z.
+# Idempotentnie: jak w ephemeral/dyskietki/rozpakowane/ jest juz GRAF.DAT,
+# cale rozpakowanie jest pomijane.
+rozpakuj_instalke() {
+  local zip z7 arj n
+  local CEL="$EPHE/dyskietki"
+  local ROZP="$CEL/rozpakowane"
+
+  if [ -f "$ROZP/GRAF.DAT" ] || [ -f "$ROZP/graf.dat" ]; then
+    echo "  juz rozpakowane: $(wzgledem "$ROZP") - pomijam unzip/7z"
+    return 0
+  fi
+
+  zip="$(find "$CLONE_DIR" -not -path '*/.git/*' -iname 'polanie.zip' 2>/dev/null | head -n1 || true)"
+  [ -n "$zip" ] || die "Nie znaleziono GRAF.DAT ani polanie.zip. Przeszukane katalogi: ${SZUKANE[*]}. polanie.zip szukano w: $(wzgledem "$CLONE_DIR")."
+  echo "  instalka: $zip"
+
+  echo "  rozpakowuje polanie.zip (unzip) -> $(wzgledem "$CEL")"
+  mkdir -p "$CEL"
+  unzip -o -q "$zip" -d "$CEL" \
+    || die "unzip nie powiodl sie na polanie.zip ($zip)."
+
+  z7="$(command -v 7z || command -v 7za || true)"
+  echo "  rozpakowuje wolumeny ARJ DATA.0NN (7z) -> $(wzgledem "$ROZP")"
+  mkdir -p "$ROZP"
+  # najpierw duze wolumeny (003-007, dyskietki ~1,4 MB), potem reszta;
+  # porazka pojedynczego wolumenu nie zabija skryptu (set -e): DATA.000 moze
+  # nie byc ARJ, a wolumeny ciag dalszy moga prosic o poprzedni/nastepny
+  for n in 003 004 005 006 007 000 001 002 008 009; do
+    arj="$CEL/DATA.$n"
+    [ -f "$arj" ] || { echo "  brak DATA.$n - pomijam"; continue; }
+    "$z7" x -y -o"$ROZP" "$arj" \
+      || echo "  pomijam DATA.$n (brak ARJ/inny format)"
+  done
+}
+
 mkdir -p "$EPHE/install"
 
 log "1/6 Pobieranie danych gry (git clone mirrora polanie.prv.pl)"
 klonuj_mirror
 
-log "2/6 Szukanie GRAF.DAT (klon mirrora + ephemeral)"
+log "2/6 Szukanie GRAF.DAT (klon mirrora + ephemeral, ew. instalka polanie.zip)"
 SZUKANE=( "$CLONE_DIR" "$EPHE" )
 if [ -d "$HOME/.local/share/polanie/ephemeral" ]; then
   SZUKANE+=( "$HOME/.local/share/polanie/ephemeral" )
 fi
-szukaj_graf "pelna wersja" "${SZUKANE[@]}" \
-  || die "Nie znaleziono GRAF.DAT. Przeszukane katalogi: ${SZUKANE[*]}"
-SRC_GAME="$ZNALEZIONY_KATALOG"
+SRC_GAME=""
+if szukaj_graf "pelna wersja" "${SZUKANE[@]}"; then
+  SRC_GAME="$ZNALEZIONY_KATALOG"
+else
+  echo "  GRAF.DAT nie lezy luzem w klonie - rozpakowuje instalke polanie.zip"
+  echo "  (wolumeny DATA.0NN to archiwa ARJ, rozpakowuje je 7z)"
+  rozpakuj_instalke
+  szukaj_graf "pelna wersja (z instalki)" "$EPHE/dyskietki/rozpakowane" \
+    || die "Nie znaleziono GRAF.DAT. Przeszukane katalogi: ${SZUKANE[*]} oraz ephemeral/dyskietki/rozpakowane. Rozpakowano polanie.zip (unzip) i wolumeny DATA.0NN (7z) do ephemeral/dyskietki/. Prosze dolaczyc do zgloszenia pelny log wyjscia 7z (i unzip)."
+  SRC_GAME="$ZNALEZIONY_KATALOG"
+fi
 echo "  dane gry: $(wzgledem "$SRC_GAME")"
 
 log "3/6 Kopiowanie danych do ephemeral/dysk/GRY/POLANIE"
