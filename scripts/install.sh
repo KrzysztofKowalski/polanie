@@ -2,8 +2,9 @@
 # Instalator danych gry "Polanie" (1997) dla portu Linux.
 #
 # Odtwarza instalacje, ktora w 1997 r. robil INSTALUJ.EXE pod DOS-em z dyskietek
-# (polanie.zip) - bez DOS-a. Kolejnosc faz (idempotentnie - mozna uruchamiac
-# wielokrotnie; ponowny przebieg doklada tylko brakujace elementy):
+# (polanie.zip) - bez DOS-a. Kolejnosc faz (mozna uruchamiac wielokrotnie;
+# kazdy przebieg dekompresuje i NADPISUJE pliki od nowa - zrodlo prawdy to
+# instalka w klonie, zadnego pomijania istniejacych plikow):
 #   1. klonuje publiczny mirror polanie.prv.pl (git clone, nie curl/zip)
 #      do ephemeral/mirror/ (istniejacy klon jest odswiezany, nie klonowany),
 #   2. rozpakowuje instalke dyskietkowa: polanie.zip (unzip) ->
@@ -37,8 +38,8 @@
 #      instalacji: GRAF.DAT PAL.DAT FONT.DAT PLAYER.EXE POLANIE.EXE DATA.000
 #      SETUP.PAL SETUP1/2.DAT + GRAF/ (GRAF.001-018 + LEVEL.DAT + LEVEL.INI)
 #      + DATA/ (W001.DAT ... - efekty WAV, z wolumenow multi-volume),
-#   3. kopiuje te strukture do ephemeral/dysk/GRY/POLANIE (doklada braki)
-#      i sprawdza pelnosc wzorca - brak = koniec z lista i prosba o feedback,
+#   3. kopiuje te strukture do ephemeral/dysk/GRY/POLANIE (nadpisuje) i sprawdza
+#      pelnosc wzorca - brak = koniec z lista i prosba o feedback,
 #   4. buduje ekstraktor (src/tools/polanie_extract.cpp),
 #   5. ekstrahuje zasoby (PNG / WAV / S3M / teksty) do ephemeral/extracted,
 #   6. buduje i uruchamia check_assets (raport kompletnosci danych).
@@ -46,21 +47,27 @@
 #   jak po INSTALUJ.EXE). Jesli dekompresja czegos nie dostarczyla, skrypt
 #   konczy z lista brakow i prosba o feedback - ekstraktor nie jest zmieniany.
 #
-# Opcjonalnie (bash scripts/install.sh --cd): miedzy fazami 3 i 4 rozpakowuje
-# polanie_cd.zip (pelna wersja CD, wziety z tego samego klonu; GRAF.DAT jest
-# w nim bezposrednio) do ephemeral/cd/ - NIE skaluje sie z ephemeral/dysk/;
-# gra sama korzysta z cd/, gdy tor efektow czegos szuka. Przy okazji doklada
-# do ephemeral/dysk/GRY/POLANIE brakujace pliki opcjonalne, ktorych dyskietki
-# nie dostarczaja (pelny zestaw efektow DATA/I*.dat, DATA/SOUND.DAT - bank
-# instrumentow, banki obrazow PIC.DAT/SETUP.DAT/INSTALL*), dzieki czemu
-# ekstrakcja (faza 5) powstaje od razu pelna.
+# Pliki opcjonalne CD (miedzy fazami 3 i 4, DOMYSLNIE): skrypt automatycznie
+# wykrywa polanie_cd.zip (pelna wersja CD z tego samego klonu; GRAF.DAT jest
+# w nim bezposrednio) i, gdy jest, rozpakowuje go do ephemeral/cd/ oraz kopiuje
+# do ephemeral/dysk/GRY/POLANIE pliki opcjonalne, ktorych dyskietki nie
+# dostarczaja (pelny zestaw efektow DATA/I*.dat, DATA/SOUND.DAT - bank
+# instrumentow, banki obrazow PIC.DAT/SETUP.DAT/INSTALL*), z nadpisywaniem -
+# dzieki czemu ekstrakcja (faza 5) powstaje od razu pelna. Brak
+# polanie_cd.zip w klonie to tylko ostrzezenie (die zostaje dla brakow
+# krytycznych). Flaga --cd jawnie wymusza wersje CD (die, gdy zipa nie ma).
+# CD nie skaluje sie z ephemeral/dysk/ - gra sama korzysta z cd/, gdy tor
+# efektow czegos szuka.
 #
 # Wszystko laduje w ephemeral/ (mozna skasowac w calosci i uruchomic od nowa).
 # Repozytorium NIE zawiera danych gry - pobiera je ten skrypt.
 #
 # Uzycie:
-#   bash scripts/install.sh          # dane pelnej wersji (z mirrora polanie.prv.pl)
-#   bash scripts/install.sh --cd     # + wersja CD (polanie_cd.zip)
+#   bash scripts/install.sh          # dane pelnej wersji + opcjonalne z CD
+#                                    # (dolaczane domyslnie, gdy polanie_cd.zip
+#                                    # jest w klonie)
+#   bash scripts/install.sh --cd     # j.w. z wymuszeniem wersji CD
+#                                    # (die, gdy polanie_cd.zip nie ma w klonie)
 #
 # Zaleznosci instalatora: git, g++, unzip oraz arj (zalecane - skleja ARJ
 # multi-volume; Arch/Omarchy: yay -S arj) albo 7z/7za (p7zip; NIE skleja
@@ -121,7 +128,7 @@ rozpakuj_archiwum() { # rozpakuj_archiwum <archiwum> <katalog_celu>
   fi
 }
 
-# ---- szukanie GRAF.DAT (uzywane wylacznie przez tryb --cd) -----------------
+# ---- szukanie GRAF.DAT (uzywane przez wersje CD: domyslna i --cd) ----------
 # Szuka GRAF.DAT (find, dowolna glebokosc) w podanych katalogach; loguje
 # wszystkie trafienia i wybiera jeden katalog: preferowane te, ktore maja
 # tez PAL.DAT, przy kilku - katalog z najwiekszym GRAF.DAT.
@@ -188,6 +195,7 @@ normalizuj_rozpakowane() { # normalizuj_rozpakowane <katalog>
       src="$(plik_ci "$rozp" "$p" || true)"
       if [ -n "$src" ]; then
         mkdir -p "$rozp/GRAF"
+        rm -f "$rozp/GRAF/$p"
         cp -a "$src" "$rozp/GRAF/$p"
         echo "  ulozone: $p -> GRAF/ (kopia; oryginal zostaje luzem)"
       fi
@@ -213,10 +221,6 @@ dekompresuj_multi_volume() { # dekompresuj_multi_volume <dyskietki> <rozpakowane
     plik_ci "$cel" "DATA.$n" >/dev/null \
       || die "Brak wolumenu DATA.$n - seria multi-volume DATA.003..DATA.007 jest niekompletna (katalog: $(wzgledem "$cel"))."
   done
-  if plik_ci "$rozp/DATA" W001.DAT >/dev/null; then
-    echo "  DATA/ (efekty) juz rozpakowana z wolumenow multi-volume - pomijam"
-    return 0
-  fi
   mkdir -p "$wol"
   i=1
   for n in 003 004 005 006 007; do
@@ -278,7 +282,7 @@ dekompresuj_multi_volume() { # dekompresuj_multi_volume <dyskietki> <rozpakowane
 # Kolejnosc: unzip polanie.zip -> pojedyncze ARJ (DATA.001/002) -> multi-volume
 # (DATA.003..007, pelny zestaw + DATA/) -> porzadkowanie -> programy DOS
 # (DATA.000, DATA.009->POLANIE.EXE) -> pomijanie DATA.008.
-# Idempotentnie: pelna struktura wynikowa (GRAF.DAT + DATA/W001.DAT) = koniec.
+# Kazdy przebieg dekompresuje i nadpisuje od nowa (zrodlo prawdy: instalka).
 rozpakuj_instalke() {
   local CEL="$EPHE/dyskietki"
   local ROZP="$CEL/rozpakowane"
@@ -286,28 +290,19 @@ rozpakuj_instalke() {
   local zip arch src n
   mkdir -p "$ROZP"
 
-  if plik_ci "$ROZP" GRAF.DAT >/dev/null && plik_ci "$ROZP/DATA" W001.DAT >/dev/null; then
-    echo "  juz rozpakowane i ulozone: $(wzgledem "$ROZP") - pomijam"
-    return 0
+  # unzip polanie.zip (wolumeny DATA.0NN) - zawsze, nadpisuje (-o)
+  zip="$(find "$CLONE_DIR" -not -path '*/.git/*' -iname 'polanie.zip' 2>/dev/null | head -n1 || true)"
+  if [ -z "$zip" ]; then
+    die "W klonie mirrora nie ma instalki polanie.zip (szukano w: $(wzgledem "$CLONE_DIR"))."
   fi
+  echo "  instalka: $zip"
+  echo "  rozpakowuje polanie.zip (unzip, nadpisuje) -> $(wzgledem "$CEL")"
+  mkdir -p "$CEL"
+  unzip -o -q "$zip" -d "$CEL" \
+    || die "unzip nie powiodl sie na polanie.zip ($zip)."
 
-  # unzip polanie.zip (wolumeny DATA.0NN)
-  if [ -f "$CEL/DATA.001" ] || [ -f "$CEL/data.001" ]; then
-    echo "  wolumeny DATA.0NN juz wypakowane z polanie.zip - pomijam unzip"
-  else
-    zip="$(find "$CLONE_DIR" -not -path '*/.git/*' -iname 'polanie.zip' 2>/dev/null | head -n1 || true)"
-    if [ -z "$zip" ]; then
-      die "W klonie mirrora nie ma instalki polanie.zip (szukano w: $(wzgledem "$CLONE_DIR"))."
-    fi
-    echo "  instalka: $zip"
-    echo "  rozpakowuje polanie.zip (unzip) -> $(wzgledem "$CEL")"
-    mkdir -p "$CEL"
-    unzip -o -q "$zip" -d "$CEL" \
-      || die "unzip nie powiodl sie na polanie.zip ($zip)."
-  fi
-
-  # pojedyncze archiwa ARJ: DATA.001, DATA.002 (dekompresowane przy kazdym
-  # niepelnym przebiegu fazy 2 - tanie, nadpisuje te same pliki)
+  # pojedyncze archiwa ARJ: DATA.001, DATA.002 (dekompresowane zawsze - arj
+  # nadpisuje te same pliki)
   for n in 001 002; do
     arch="$(plik_ci "$CEL" "DATA.$n" || true)"
     if [ -z "$arch" ]; then
@@ -330,11 +325,13 @@ rozpakuj_instalke() {
   # przewiduje wersje z DATA.009)
   src="$(plik_ci "$CEL" DATA.000 || true)"
   if [ -n "$src" ]; then
+    rm -f "$ROZP/DATA.000"
     cp -a "$src" "$ROZP/DATA.000"
     echo "  DATA.000 (program DOS) -> rozpakowane/DATA.000"
   fi
   src="$(plik_ci "$CEL" DATA.009 || true)"
   if [ -n "$src" ]; then
+    rm -f "$ROZP/POLANIE.EXE"
     cp -a "$src" "$ROZP/POLANIE.EXE"
     echo "  DATA.009 (POLANIE.EXE) -> rozpakowane/POLANIE.EXE"
   fi
@@ -381,50 +378,92 @@ klonuj_mirror
 log "2/6 Instalka dyskietkowa: polanie.zip + wolumeny ARJ DATA.0NN"
 rozpakuj_instalke
 
-log "3/6 Kopiowanie danych do ephemeral/dysk/GRY/POLANIE (wg wzorca instalacji)"
+log "3/6 Kopiowanie danych do ephemeral/dysk/GRY/POLANIE (nadpisywanie)"
 ROZP="$EPHE/dyskietki/rozpakowane"
 DYSK="$EPHE/dysk/GRY/POLANIE"
-if plik_ci "$DYSK" GRAF.DAT >/dev/null && plik_ci "$DYSK/DATA" W001.DAT >/dev/null \
-  && plik_ci "$DYSK/GRAF" GRAF.001 >/dev/null && plik_ci "$DYSK/GRAF" LEVEL.DAT >/dev/null; then
-  echo "  juz kompletny - pomijam (kasuj ephemeral/dysk, aby odswiezyc)"
-else
-  mkdir -p "$DYSK"
-  shopt -s nullglob
-  for el in "$ROZP"/*; do
-    nazwa="$(basename "$el")"
-    # aplikacja i konfiguracja instalatora DOS - gra i ekstraktor ich nie czytaja
-    if [ "$nazwa" = "SETUP.EXE" ] || [ "$nazwa" = "setup.exe" ] \
-      || [ "$nazwa" = "SETUP.INI" ] || [ "$nazwa" = "setup.ini" ]; then
-      continue
-    fi
-    if [ -d "$el" ]; then
-      # katalogi kopiowane caloscia (uzupelnia polstany, np. GRAF/ albo DATA/)
-      mkdir -p "$DYSK/$nazwa"
-      cp -a "$el/." "$DYSK/$nazwa/"
-      echo "  katalog: $nazwa (uzupelniony)"
-    elif [ ! -e "$DYSK/$nazwa" ]; then
-      cp -a "$el" "$DYSK/$nazwa"
-      echo "  kopiuje: $nazwa"
-    fi
-  done
-  shopt -u nullglob
-fi
+mkdir -p "$DYSK"
+shopt -s nullglob
+for el in "$ROZP"/*; do
+  nazwa="$(basename "$el")"
+  # aplikacja i konfiguracja instalatora DOS - gra i ekstraktor ich nie czytaja
+  if [ "$nazwa" = "SETUP.EXE" ] || [ "$nazwa" = "setup.exe" ] \
+    || [ "$nazwa" = "SETUP.INI" ] || [ "$nazwa" = "setup.ini" ]; then
+    continue
+  fi
+  if [ -d "$el" ]; then
+    # katalogi kopiowane caloscia (-f: arj potrafi utworzyc pliki read-only,
+    # cp nadpisuje je usuwajac cel)
+    mkdir -p "$DYSK/$nazwa"
+    cp -af "$el/." "$DYSK/$nazwa/"
+    echo "  katalog: $nazwa (nadpisany)"
+  else
+    rm -f "$DYSK/$nazwa"
+    cp -a "$el" "$DYSK/$nazwa"
+    echo "  kopiuje: $nazwa"
+  fi
+done
+shopt -u nullglob
 kontroluj_strukture "$DYSK"
 
-# ---- opcjonalna wersja CD: rozpakowanie + dokladanie plikow opcjonalnych ---
+# ---- wersja CD: pliki opcjonalne (domyślnie, gdy polanie_cd.zip w klonie) --
 # polanie_cd.zip (pelna wersja CD) dostarcza tego, czego dyskietki nie maja:
 # pelnego zestawu efektow DATA/I*.dat, banku instrumentow DATA/SOUND.DAT oraz
 # dodatkowych bankow obrazow (PIC.DAT, SETUP.DAT, INSTALL*). Dozucane do
-# ephemeral/dysk/GRY/POLANIE idempotentnie (tylko brakujace) PRZED ekstrakcja,
-# dzieki czemu ekstrakt powstaje od razu pelny. Zawartosc CD laduje tez w
+# ephemeral/dysk/GRY/POLANIE z nadpisywaniem PRZED ekstrakcja, dzieki czemu
+# ekstrakt powstaje od razu pelny. Zawartosc CD laduje tez w
 # ephemeral/cd/polanie_cd/ (nie scalane; gra sama korzysta z cd/, gdy tor
 # efektow czegos szuka).
-if [ "${1:-}" = "--cd" ]; then
-  log "CD 1/2 Wersja CD (polanie_cd.zip z klona mirrora, opcjonalna)"
-  CD_ZIP="$(find "$CLONE_DIR" -not -path '*/.git/*' -iname 'polanie_cd.zip' 2>/dev/null | head -n1)"
-  [ -n "$CD_ZIP" ] || die "W klonie mirrora nie ma polanie_cd.zip (przeszukano: $(wzgledem "$CLONE_DIR"))."
+# Instalacja DOMYSLNA doklada opcjonalne, gdy polanie_cd.zip jest w klonie
+# (auto-detekcja); brak zipa = ostrzezenie, nie blad. Flaga --cd jawnie
+# wymusza wersje CD (die, gdy zipa brak).
+dolacz_cd() { # dolacz_cd <katalog_zrodlowy_CD>
+  local cd_src="$1" p plik nazwa cd_data src
+  # DATA/ moze byc podkatalogiem albo pliki leza luzem
+  cd_data="$cd_src/DATA"
+  [ -d "$cd_data" ] || cd_data="$cd_src"
+  mkdir -p "$DYSK/DATA"
+  # I*.DAT - pelny zestaw efektow CD; nazwy normalizowane do wielkich liter
+  # (ekstraktor czyta DATA/I001.DAT - konwencja DOS instalacji). Tylko wzorce
+  # globowe (nullglob usuwa niepasujace; sciezki literalne zostalyby jako
+  # nieistniejace argumenty cp).
+  shopt -s nullglob
+  for plik in "$cd_data"/I[0-9][0-9][0-9].DAT "$cd_data"/I[0-9][0-9][0-9].dat; do
+    nazwa="$(basename "$plik")"
+    nazwa="${nazwa^^}"
+    cp -af "$plik" "$DYSK/DATA/$nazwa"
+    echo "  z CD: DATA/$nazwa"
+  done
+  shopt -u nullglob
+  # SOUND.DAT - bank instrumentow (plik o dokladnej nazwie, bez wzorca)
+  for w in SOUND.DAT sound.dat; do
+    src="$(plik_ci "$cd_data" "$w" || true)"
+    if [ -n "$src" ]; then
+      cp -af "$src" "$DYSK/DATA/SOUND.DAT"
+      echo "  z CD: DATA/SOUND.DAT"
+      break
+    fi
+  done
+  for p in POST.DAT SWIAT.DAT PIC.DAT SETUP.DAT SETUP.PAL INSTALL.PAL \
+           INSTALL1.DAT INSTALL2.DAT FONTS1.13H LEVEL2.INI; do
+    src="$(plik_ci "$cd_src" "$p" || true)"
+    if [ -n "$src" ]; then
+      cp -af "$src" "$DYSK/$p"
+      echo "  z CD: $p"
+    fi
+  done
+  return 0
+}
+
+CD_ZIP="$(find "$CLONE_DIR" -not -path '*/.git/*' -iname 'polanie_cd.zip' 2>/dev/null | head -n1 || true)"
+if [ -z "$CD_ZIP" ]; then
+  if [ "${1:-}" = "--cd" ]; then
+    die "W klonie mirrora nie ma polanie_cd.zip (przeszukano: $(wzgledem "$CLONE_DIR")), a --cd jawnie wymaga wersji CD."
+  fi
+  echo "UWAGA: brak polanie_cd.zip w klonie - pliki opcjonalne CD (DATA/I*.dat, SOUND.DAT, PIC.DAT) nie zostana dolozone."
+else
+  log "CD 1/2 Wersja CD (polanie_cd.zip z klona mirrora, opcjonalne - domyslnie)"
   echo "  archiwum CD: $CD_ZIP"
-  log "CD 2/2 Rozpakowanie -> ephemeral/cd/ + dokladanie plikow opcjonalnych"
+  log "CD 2/2 Rozpakowanie -> ephemeral/cd/ + nadpisywanie plikow opcjonalnych"
   rm -rf "$EPHE/cd/unzipped"
   mkdir -p "$EPHE/cd/unzipped"
   unzip -q "$CD_ZIP" -d "$EPHE/cd/unzipped"
@@ -432,31 +471,9 @@ if [ "${1:-}" = "--cd" ]; then
     || die "Nie znaleziono GRAF.DAT w polanie_cd.zip (przeszukano: $(wzgledem "$EPHE/cd/unzipped"))."
   CD_SRC="$ZNALEZIONY_KATALOG"
   mkdir -p "$EPHE/cd/polanie_cd"
-  cp -a "$CD_SRC/." "$EPHE/cd/polanie_cd/"
+  cp -af "$CD_SRC/." "$EPHE/cd/polanie_cd/"
   echo "  wersja CD: ephemeral/cd/polanie_cd/ (do toru efektow/muzyki CD)"
-
-  # pliki opcjonalne z CD (DATA/ moze byc podkatalogiem albo pliki leza luzem)
-  CD_DATA="$CD_SRC/DATA"
-  [ -d "$CD_DATA" ] || CD_DATA="$CD_SRC"
-  mkdir -p "$DYSK/DATA"
-  shopt -s nullglob
-  for plik in "$CD_DATA"/I[0-9][0-9][0-9].DAT "$CD_DATA"/I[0-9][0-9][0-9].dat \
-              "$CD_DATA"/SOUND.DAT "$CD_DATA"/sound.dat; do
-    nazwa="$(basename "$plik")"
-    if ! plik_ci "$DYSK/DATA" "$nazwa" >/dev/null; then
-      cp -a "$plik" "$DYSK/DATA/$nazwa"
-      echo "  z CD dokladam: DATA/$nazwa"
-    fi
-  done
-  shopt -u nullglob
-  for p in POST.DAT SWIAT.DAT PIC.DAT SETUP.DAT SETUP.PAL INSTALL.PAL \
-           INSTALL1.DAT INSTALL2.DAT FONTS1.13H LEVEL2.INI; do
-    src="$(plik_ci "$CD_SRC" "$p" || true)"
-    if [ -n "$src" ] && ! plik_ci "$DYSK" "$p" >/dev/null; then
-      cp -a "$src" "$DYSK/$p"
-      echo "  z CD dokladam: $p"
-    fi
-  done
+  dolacz_cd "$CD_SRC"
 fi
 
 log "4/6 Budowa ekstraktora (src/tools/polanie_extract.cpp)"
