@@ -257,11 +257,15 @@ int licznik2 = 0;
 // dyskietkowym game/ kod podgladu usunieto (zostaly martwe deklaracje face[]),
 // ale tlo okienka w GRAF.DAT i sam arkusz portretow zostaly.
 // Roznica wzgledem CD: u nas 6 gniazod akcji zaczyna sie na y18 (w CD od y38),
-// wiec okno nachodzi na gniazdo 0 - tarcza komendy "Stoj" (275,19) jest
-// odrysowywana na wierzchu podgladu, a pasek mleka (x299-314, rysowany po
-// podgladzie w petli glownej) przykrywa prawy skraj kafla portretu (x299-309).
-static char polFaceBuf[16 * (32 * 21 + 6)]; // 16 kafli 32x21 (portret/budynek)
-static char polOknoTlo[6 + 21 * 21];        // tlo okienka (278,7)-(298,27)
+// wiec okno nachodzi na gniazdo 0. W dyskietkowym ShowPanel (game/graphics.cpp,
+// kompilowany 1:1) tarcza komendy "Stoj" (275,19) i tlo gniazda 0 (274,18)
+// leza NA WIERZCHU okna - przy podgladzie wymazuje je tlo z tla panelu
+// (polGniazdoTlo, jak w CD, gdzie gniazdo 0 bylo zakryte oknem). Pasek mleka
+// (x299-314) jest rysowany PRZED podgladem: jego ramka drewno[2] (299,9)
+// przykrywala prawy skraj kafla portretu (x299-309), wiec podglad lezy na
+// wierzchu paska (w CD okno rowniez nachodzilo na pasek mleka).
+static char polFaceBuf[16 * (32 * 21 + 6)];   // 16 kafli 32x21 (portret/budynek)
+static char polGniazdoTlo[6 + 18 * 16];       // tlo gniazda 0 (274,18)-(291,33)
 
 // PORT: wycina face[] z arkuszy 4 i 5; wolac po SetScreen(1), przed
 // ShowBackground() (ktory i tak odtwarza ekran 3 w tle panelu)
@@ -280,8 +284,8 @@ static void InitSelectionPreview(void) {
 }
 
 // PORT: rysuje podglad zaznaczonego obiektu w okienku panelu; wolac co klatke
-// w petli glownej bitwy PRZED blokiem paska mleka (drewno[2]+Bar13h), ktory
-// odtwarza pasek i prawy skraj okienka.
+// w petli glownej bitwy PO bloku paska mleka (drewno[2]+Bar13h) - podglad musi
+// lezec na wierzchu ramki paska, bo ta przykrywa prawy skraj okienka (x299-309).
 static void ShowSelectionPreview(void) {
   int idx = -1, tw = 0; // tw: 0-brak, 1-jednostka, 2-budynek, 3-jednostka 10-12
   if (select.IFF < 2) {
@@ -299,16 +303,21 @@ static void ShowSelectionPreview(void) {
     }
   }
   if (!tw) {
-    // PORT: nic nie zaznaczone - odtworz tlo okienka i tlo gniazda 0
-    // (kasuje resztki poprzedniego podgladu); pasek mleka odswiezy sie nizej
-    PutImage13h(278, 7, polOknoTlo, 0);
+    // PORT: nic nie zaznaczone - odtworz tlo okienka (drewno[1], jak w
+    // edytorze) i ramke gniazda 0: panel wraca do widoku dyskietkowego
+    // (kasuje tez resztki poprzedniego podgladu w calym okienku 32x21)
+    PutImage13h(278, 7, drewno[1], 0);
     PutImage13h(274, 18, Buttons[3], 0);
     return;
   }
+  // PORT: zaznaczenie - wymaz tarcze "Stoj" i tlo gniazda 0 (ShowPanel rysuje
+  // je na (275,19)/(274,18) na wierzchu okna; w CD gniazdo 0 lezalo POD
+  // oknem podgladu), potem tlo okienka 32x21 (drewno[1], jak w ShowPanel
+  // edytora, editor/graphic1.cpp:991)
+  PutImage13h(274, 18, polGniazdoTlo, 0);
+  PutImage13h(278, 7, drewno[1], 0);
   if (tw == 3) {
     // jednostka bez portretu: kafelek fazy 0 chodu (16x14) na srodku okienka
-    PutImage13h(278, 7, polOknoTlo, 0);
-    PutImage13h(274, 18, Buttons[3], 0);
     PutImage13h(280, 10, movers[0][idx][1][1], 1);
   } else {
     if (!select.IFF)
@@ -317,8 +326,6 @@ static void ShowSelectionPreview(void) {
          // jak portret w edytorze (graphic1.cpp:1005)
       PutImageChange13h(278, 7, face[idx], 0, color1, color2);
   }
-  if (select.co == 1 && selectM->type)
-    PutImage13h(275, 19, buttons[0], 1); // tarcza "Stoj" (gniazdo 0) na wierzchu
 }
 //==============================================================================
 ///////////////////////////////////////////////
@@ -356,7 +363,7 @@ void Battle(int type) // 1-single start   0-rs   2-loaded
     SetScreen(1);
     InitSelectionPreview(); // PORT: podglad zaznaczenia - wyciecie face[] (ekrany 4 i 5)
     ShowBackground();
-    GetImage13h(278, 7, 299, 28, polOknoTlo); // PORT: tlo okienka podgladu z tla panelu
+    GetImage13h(274, 18, 292, 34, polGniazdoTlo); // PORT: tlo gniazda 0 z tla panelu (do wymazania tarczy "Stoj" przy podgladzie)
     ShowPanel(0, 0, 0, 0, 0);
     if (Map)
       PressButton(16, 2);
@@ -784,9 +791,6 @@ void ShowSelected() {
     }
     SetClippingArea13h(0, 0, 319, 199);
 
-    // PORT: podglad zaznaczonego obiektu w okienku panelu (feature wersji CD)
-    ShowSelectionPreview();
-
     ///////////// wypisz mleko /////////////////////////////////
     PutImage13h(299, 9, drewno[2], 0); //???
     i = castle[master].milk;
@@ -801,6 +805,11 @@ void ShowSelected() {
     i = i / 10;
     if (i)
       Bar13h(299, 150 - i, 314, 151 - i, LightRed);
+
+    // PORT: podglad zaznaczonego obiektu w okienku panelu (feature wersji CD);
+    // po pasku mleka, bo jego ramka drewno[2] (299,9) przykrywa prawy skraj
+    // okienka (x299-309) - podglad lezy na wierzchu paska (jak okno w CD)
+    ShowSelectionPreview();
 
     ////////////////mapa//////////////////////////////////
     if (mouseCommand < 2) {

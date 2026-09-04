@@ -860,6 +860,45 @@ void LoadExtendedPalette(int pal) {
     return;
   fseek(palettefile, whence, 0);
   fread(rgb, 768, 1, palettefile);
+  // PORT: granice prowincji - paleta 6 dyskietki ma biel w 232-255, wstawiamy
+  // odcienie z rewizji CD (raporty/kolory-granic-prowincji.md).
+  if (pal == 6) {
+    // Rewizja dyskietkowa PAL.DAT ("Powrot Mirka", dysk/GRY/POLANIE) ma wpisy
+    // 148 i 232-255 wypalone do czystej bieli, wiec granice plemion na mapie
+    // podboju (PutImageChange13h: ACTIVE=233 -> kolorK 233-248, RED=148)
+    // wychodza biale i bez pulsowania odcieniem. Ponizej wartosci z rewizji CD
+    // (jprok_pliki/rozpakowane/polanie_cd/PAL.DAT, paleta 6) - te same indeksy
+    // maja tam kolory plemion i odcienie pulsu. Format: surowe 0-255 jak w
+    // buforze rgb (>>2 do DAC robi SetExtendedPalette, 6->8 bitow POL_Dac6To8
+    // - lancuch identyczny jak w DOS). Paleta 6 uzywana wylacznie przez
+    // NextConquest (mapa.cpp); pozostale palete (0-5, 7-12) nietkniete.
+    static const unsigned char pal6CD[18][3] = {
+        {0xE0, 0x00, 0x00}, /* 148 - czerwony, Polanie (RED) */
+        {0x00, 0x8C, 0xFF}, /* 232 */
+        {0xB3, 0x92, 0x00}, /* 233 - zolty, kontur (ACTIVE) */
+        {0xCC, 0xA6, 0x00}, /* 234 */
+        {0xE6, 0xBF, 0x00}, /* 235 */
+        {0xFF, 0xFF, 0x00}, /* 236 - zolci (YELLOW) */
+        {0x80, 0x80, 0x80}, /* 237 */
+        {0x99, 0x99, 0x99}, /* 238 */
+        {0xB3, 0xB3, 0xB3}, /* 239 */
+        {0xCC, 0xCC, 0xCC}, /* 240 - szarzy (GRAY) */
+        {0x00, 0x00, 0xE6}, /* 241 */
+        {0x52, 0x52, 0xFF}, /* 242 */
+        {0x00, 0xA1, 0xE6}, /* 243 */
+        {0x00, 0xC4, 0xFF}, /* 244 - niebiescy (BLUE) */
+        {0x00, 0x99, 0x00}, /* 245 */
+        {0x00, 0xB3, 0x00}, /* 246 */
+        {0x00, 0xCC, 0x00}, /* 247 */
+        {0x00, 0xFF, 0x00}, /* 248 - zieloni (GREEN) */
+    };
+    static const unsigned char pal6Idx[18] = {148, 232, 233, 234, 235, 236, 237,
+                                              238, 239, 240, 241, 242, 243, 244,
+                                              245, 246, 247, 248};
+    for (int i = 0; i < 18; i++)
+      for (int c = 0; c < 3; c++)
+        rgb[pal6Idx[i] * 3 + c] = (char)pal6CD[i][c];
+  }
 }
 
 void LoadPalette13h(char *name) {
