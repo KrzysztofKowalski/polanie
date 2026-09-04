@@ -29,7 +29,7 @@ kolorów), skalowanie robi okno/gamescope.
 - opcjonalnie: `glslangValidator` albo `glslc` (backend GPU), Google Test
   (testy jednostkowe);
 - do instalatora: `git`, `unzip` oraz `7z`/`7za` (pakiet `p7zip`) — wolumeny
-  ARJ instalacji dyskietkowej rozpakowuje `7z`.
+  ARJ instalacji dyskietkowej rozpakowuje `7z`, oraz `arj`.
 
 Debian/Ubuntu: `sudo apt install g++ make pkg-config libsdl3-dev libopenmpt-dev libsfizz-dev unzip p7zip-full`
 Arch/Omarchy: `sudo pacman -S --needed base-devel sdl3 libopenmpt sfizz unzip p7zip`
