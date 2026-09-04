@@ -25,6 +25,7 @@ kolorów), skalowanie robi okno/gamescope.
 - Linux x86-64, `g++` (C++17/C++20), `make`;
 - `pkg-config`, SDL3 (`libsdl3-dev` / `sdl3`);
 - `libopenmpt` (muzyka S3M), `sfizz` (tylko tor MIDI+sfizz);
+- gamescope 
 - opcjonalnie: `glslangValidator` albo `glslc` (backend GPU), Google Test
   (testy jednostkowe);
 - do instalatora: `git`, `unzip` oraz `7z`/`7za` (pakiet `p7zip`) — wolumeny
