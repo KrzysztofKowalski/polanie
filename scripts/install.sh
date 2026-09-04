@@ -46,10 +46,14 @@
 #   jak po INSTALUJ.EXE). Jesli dekompresja czegos nie dostarczyla, skrypt
 #   konczy z lista brakow i prosba o feedback - ekstraktor nie jest zmieniany.
 #
-# Opcjonalnie (bash scripts/install.sh --cd): dodatkowo rozpakowuje polanie_cd.zip
-# (pelna wersja CD, wziety z tego samego klonu; GRAF.DAT jest w nim bezposrednio)
-# do ephemeral/cd/ - NIE skaluje sie z ephemeral/dysk/; gra sama korzysta z cd/,
-# gdy tor efektow czegos szuka.
+# Opcjonalnie (bash scripts/install.sh --cd): miedzy fazami 3 i 4 rozpakowuje
+# polanie_cd.zip (pelna wersja CD, wziety z tego samego klonu; GRAF.DAT jest
+# w nim bezposrednio) do ephemeral/cd/ - NIE skaluje sie z ephemeral/dysk/;
+# gra sama korzysta z cd/, gdy tor efektow czegos szuka. Przy okazji doklada
+# do ephemeral/dysk/GRY/POLANIE brakujace pliki opcjonalne, ktorych dyskietki
+# nie dostarczaja (pelny zestaw efektow DATA/I*.dat, DATA/SOUND.DAT - bank
+# instrumentow, banki obrazow PIC.DAT/SETUP.DAT/INSTALL*), dzieki czemu
+# ekstrakcja (faza 5) powstaje od razu pelna.
 #
 # Wszystko laduje w ephemeral/ (mozna skasowac w calosci i uruchomic od nowa).
 # Repozytorium NIE zawiera danych gry - pobiera je ten skrypt.
@@ -407,6 +411,54 @@ else
 fi
 kontroluj_strukture "$DYSK"
 
+# ---- opcjonalna wersja CD: rozpakowanie + dokladanie plikow opcjonalnych ---
+# polanie_cd.zip (pelna wersja CD) dostarcza tego, czego dyskietki nie maja:
+# pelnego zestawu efektow DATA/I*.dat, banku instrumentow DATA/SOUND.DAT oraz
+# dodatkowych bankow obrazow (PIC.DAT, SETUP.DAT, INSTALL*). Dozucane do
+# ephemeral/dysk/GRY/POLANIE idempotentnie (tylko brakujace) PRZED ekstrakcja,
+# dzieki czemu ekstrakt powstaje od razu pelny. Zawartosc CD laduje tez w
+# ephemeral/cd/polanie_cd/ (nie scalane; gra sama korzysta z cd/, gdy tor
+# efektow czegos szuka).
+if [ "${1:-}" = "--cd" ]; then
+  log "CD 1/2 Wersja CD (polanie_cd.zip z klona mirrora, opcjonalna)"
+  CD_ZIP="$(find "$CLONE_DIR" -not -path '*/.git/*' -iname 'polanie_cd.zip' 2>/dev/null | head -n1)"
+  [ -n "$CD_ZIP" ] || die "W klonie mirrora nie ma polanie_cd.zip (przeszukano: $(wzgledem "$CLONE_DIR"))."
+  echo "  archiwum CD: $CD_ZIP"
+  log "CD 2/2 Rozpakowanie -> ephemeral/cd/ + dokladanie plikow opcjonalnych"
+  rm -rf "$EPHE/cd/unzipped"
+  mkdir -p "$EPHE/cd/unzipped"
+  unzip -q "$CD_ZIP" -d "$EPHE/cd/unzipped"
+  szukaj_graf "wersja CD" "$EPHE/cd/unzipped" \
+    || die "Nie znaleziono GRAF.DAT w polanie_cd.zip (przeszukano: $(wzgledem "$EPHE/cd/unzipped"))."
+  CD_SRC="$ZNALEZIONY_KATALOG"
+  mkdir -p "$EPHE/cd/polanie_cd"
+  cp -a "$CD_SRC/." "$EPHE/cd/polanie_cd/"
+  echo "  wersja CD: ephemeral/cd/polanie_cd/ (do toru efektow/muzyki CD)"
+
+  # pliki opcjonalne z CD (DATA/ moze byc podkatalogiem albo pliki leza luzem)
+  CD_DATA="$CD_SRC/DATA"
+  [ -d "$CD_DATA" ] || CD_DATA="$CD_SRC"
+  mkdir -p "$DYSK/DATA"
+  shopt -s nullglob
+  for plik in "$CD_DATA"/I[0-9][0-9][0-9].DAT "$CD_DATA"/I[0-9][0-9][0-9].dat \
+              "$CD_DATA"/SOUND.DAT "$CD_DATA"/sound.dat; do
+    nazwa="$(basename "$plik")"
+    if ! plik_ci "$DYSK/DATA" "$nazwa" >/dev/null; then
+      cp -a "$plik" "$DYSK/DATA/$nazwa"
+      echo "  z CD dokladam: DATA/$nazwa"
+    fi
+  done
+  shopt -u nullglob
+  for p in POST.DAT SWIAT.DAT PIC.DAT SETUP.DAT SETUP.PAL INSTALL.PAL \
+           INSTALL1.DAT INSTALL2.DAT FONTS1.13H LEVEL2.INI; do
+    src="$(plik_ci "$CD_SRC" "$p" || true)"
+    if [ -n "$src" ] && ! plik_ci "$DYSK" "$p" >/dev/null; then
+      cp -a "$src" "$DYSK/$p"
+      echo "  z CD dokladam: $p"
+    fi
+  done
+fi
+
 log "4/6 Budowa ekstraktora (src/tools/polanie_extract.cpp)"
 g++ -std=c++20 -O2 -o "$EPHE/install/polanie-extract" "$SRC/tools/polanie_extract.cpp"
 echo "  gotowe: ephemeral/install/polanie-extract"
@@ -418,22 +470,5 @@ log "6/6 Weryfikacja danych (src/tools/check_assets.cpp)"
 g++ -std=c++20 -O2 -o "$EPHE/check_assets" "$SRC/tools/check_assets.cpp"
 POLANIE_DATA="$DYSK" POLANIE_EXTRACTED="$EPHE/extracted" \
   "$EPHE/check_assets"
-
-# ---- opcjonalna wersja CD -------------------------------------------------
-if [ "${1:-}" = "--cd" ]; then
-  log "CD 1/2 Wersja CD (polanie_cd.zip z klona mirrora, opcjonalna)"
-  CD_ZIP="$(find "$CLONE_DIR" -not -path '*/.git/*' -iname 'polanie_cd.zip' 2>/dev/null | head -n1)"
-  [ -n "$CD_ZIP" ] || die "W klonie mirrora nie ma polanie_cd.zip (przeszukano: $(wzgledem "$CLONE_DIR"))."
-  echo "  archiwum CD: $CD_ZIP"
-  log "CD 2/2 Rozpakowanie -> ephemeral/cd/ (nie scalane z ephemeral/dysk/)"
-  rm -rf "$EPHE/cd/unzipped"
-  mkdir -p "$EPHE/cd/unzipped"
-  unzip -q "$CD_ZIP" -d "$EPHE/cd/unzipped"
-  szukaj_graf "wersja CD" "$EPHE/cd/unzipped" \
-    || die "Nie znaleziono GRAF.DAT w polanie_cd.zip (przeszukano: $(wzgledem "$EPHE/cd/unzipped"))."
-  mkdir -p "$EPHE/cd/polanie_cd"
-  cp -a "$ZNALEZIONY_KATALOG/." "$EPHE/cd/polanie_cd/"
-  echo "  wersja CD: ephemeral/cd/polanie_cd/ (do toru efektow/muzyki CD)"
-fi
 
 log "Instalacja zakonczona. Kolejny krok: bash scripts/build.sh"

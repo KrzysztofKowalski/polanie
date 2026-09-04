@@ -13,7 +13,8 @@
 //                       GRAF/levels/level.dat(+level.ini) albo LEVELS/
 //   <baza>/           : FONT.DAT (krytyczny), POST.DAT (opcjonalny)
 //   ekstrakt (env POLANIE_EXTRACTED, albo ../extracted wzgledem bazy):
-//   teksty/LEVEL.DAT, audio/dzwieki i audio/muzyka niepuste
+//   teksty/LEVEL.txt (konwersja LEVEL.DAT z ekstraktora; dopuszczalny tez
+//   surowy LEVEL.DAT), audio/dzwieki i audio/muzyka niepuste
 //
 // Budowa: g++ -std=c++20 -O2 -o check_assets check_assets.cpp
 
@@ -218,7 +219,10 @@ int main(int argc, char **argv) {
   if (ekstrakt.empty()) {
     report("ekstrakt (extracted/)", false, true, fs::path());
   } else {
-    report("teksty/LEVEL.DAT", find_ci(ekstrakt / "teksty", "LEVEL.DAT", &hit), true, hit);
+    // ekstraktor zapisuje konwersje jako teksty/LEVEL.txt (nie LEVEL.DAT)
+    report("teksty/LEVEL.txt", find_ci(ekstrakt / "teksty", "LEVEL.txt", &hit)
+                                 || find_ci(ekstrakt / "teksty", "LEVEL.DAT", &hit),
+           true, hit);
     fs::path dzw = ekstrakt / "audio" / "dzwieki";
     fs::path muz = ekstrakt / "audio" / "muzyka";
     size_t ndz = count_files(dzw);
@@ -246,5 +250,8 @@ int main(int argc, char **argv) {
   else
     printf("Braki krytyczne: uruchom ponownie bash scripts/install.sh albo "
            "uzupelnij dane.\n");
+  if (ostrz > 0 && braki == 0)
+    printf("Braki opcjonalne: wersja CD dolacza pelny zestaw efektow "
+           "(DATA/I*.dat) i banki obrazow - bash scripts/install.sh --cd\n");
   return braki == 0 ? 0 : 1;
 }
