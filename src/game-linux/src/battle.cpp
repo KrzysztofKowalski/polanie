@@ -184,6 +184,7 @@ extern char *movers[5][10][3][3], *ramka[4]; // faza:typ:dx:dy
 extern char *buttons[16];
 extern char *Hit[2], *dead[3];
 extern char *drewno[3];
+extern char *Buttons[4]; // PORT: tla/ramki gniazod akcji (graphics.cpp)
 extern char *fire[14]; // world
 extern char *face[16]; // 0-9 twarze, 10-15 budynki
 extern int placeG[MaxX][MaxY];
@@ -244,7 +245,82 @@ extern void ShowText(int, int);
 // main
 extern void PressButton(int B, int P);
 extern void MouseEngine(void);
+// PORT: nowa mechanika - leczenie rannych jednostek (src/unit_heal.cpp)
+extern "C" void POL_UnitHealTick(void);
 int licznik2 = 0;
+//=========== PORT: podglad zaznaczonego obiektu (feature wersji CD) ===========
+// PORT: W wersji CD w prawym gornym rogu panelu bitwy jest wytloczone okienko
+// (278,7)-(310,27), w ktorym pokazywano portret zaznaczonej jednostki albo
+// obrazek zaznaczonego budynku. Odtworzone z edytora misji (editor/graphic1.cpp:
+// 991 - ShowPanel rysuje tam drewno[1] + face[co]): twarze 32x21 wycina z
+// wiersza 12 arkusza (y 168-189) ekranu 4, obrazki budynkow z ekranu 5. W
+// dyskietkowym game/ kod podgladu usunieto (zostaly martwe deklaracje face[]),
+// ale tlo okienka w GRAF.DAT i sam arkusz portretow zostaly.
+// Roznica wzgledem CD: u nas 6 gniazod akcji zaczyna sie na y18 (w CD od y38),
+// wiec okno nachodzi na gniazdo 0 - tarcza komendy "Stoj" (275,19) jest
+// odrysowywana na wierzchu podgladu, a pasek mleka (x299-314, rysowany po
+// podgladzie w petli glownej) przykrywa prawy skraj kafla portretu (x299-309).
+static char polFaceBuf[16 * (32 * 21 + 6)]; // 16 kafli 32x21 (portret/budynek)
+static char polOknoTlo[6 + 21 * 21];        // tlo okienka (278,7)-(298,27)
+
+// PORT: wycina face[] z arkuszy 4 i 5; wolac po SetScreen(1), przed
+// ShowBackground() (ktory i tak odtwarza ekran 3 w tle panelu)
+static void InitSelectionPreview(void) {
+  int i;
+  for (i = 0; i < 16; i++)
+    face[i] = polFaceBuf + i * (32 * 21 + 6);
+  ShowPicture(4, 0);
+  ShowPicture(19, 100);
+  for (i = 0; i < 10; i++) // portrety jednostek (typy 0-9)
+    GetImage13h(i * 32, 168, i * 32 + 32, 189, face[i]);
+  ShowPicture(5, 0);
+  ShowPicture(20, 100);
+  for (i = 0; i < 6; i++) // obrazki budynkow (typ 1-6 -> face[10..15])
+    GetImage13h(i * 32, 168, i * 32 + 32, 189, face[10 + i]);
+}
+
+// PORT: rysuje podglad zaznaczonego obiektu w okienku panelu; wolac co klatke
+// w petli glownej bitwy PRZED blokiem paska mleka (drewno[2]+Bar13h), ktory
+// odtwarza pasek i prawy skraj okienka.
+static void ShowSelectionPreview(void) {
+  int idx = -1, tw = 0; // tw: 0-brak, 1-jednostka, 2-budynek, 3-jednostka 10-12
+  if (select.IFF < 2) {
+    if (select.co == 1) {
+      if (selectM->type < 10) { // portrety istnieja tylko dla typow 0-9
+        tw = 1;
+        idx = selectM->type;
+      } else { // pastuch/mag/kusznik bez portretu - miniaturka sprite'a
+        tw = 3;
+        idx = selectM->type;
+      }
+    } else if (selectB->type >= 1 && selectB->type <= 6) {
+      tw = 2;
+      idx = 9 + selectB->type; // budynek typu N -> face[9+N]
+    }
+  }
+  if (!tw) {
+    // PORT: nic nie zaznaczone - odtworz tlo okienka i tlo gniazda 0
+    // (kasuje resztki poprzedniego podgladu); pasek mleka odswiezy sie nizej
+    PutImage13h(278, 7, polOknoTlo, 0);
+    PutImage13h(274, 18, Buttons[3], 0);
+    return;
+  }
+  if (tw == 3) {
+    // jednostka bez portretu: kafelek fazy 0 chodu (16x14) na srodku okienka
+    PutImage13h(278, 7, polOknoTlo, 0);
+    PutImage13h(274, 18, Buttons[3], 0);
+    PutImage13h(280, 10, movers[0][idx][1][1], 1);
+  } else {
+    if (!select.IFF)
+      PutImage13h(278, 7, face[idx], 0); // nasz obiekt - kolory oryginalne
+    else // wrogi: ubranie z koloru gracza (color1) na kolor wroga (color2),
+         // jak portret w edytorze (graphic1.cpp:1005)
+      PutImageChange13h(278, 7, face[idx], 0, color1, color2);
+  }
+  if (select.co == 1 && selectM->type)
+    PutImage13h(275, 19, buttons[0], 1); // tarcza "Stoj" (gniazdo 0) na wierzchu
+}
+//==============================================================================
 ///////////////////////////////////////////////
 //      Battle
 ///////////////////////////////////////////////
@@ -278,7 +354,9 @@ void Battle(int type) // 1-single start   0-rs   2-loaded
     if (type > 1)
       type = 1;
     SetScreen(1);
+    InitSelectionPreview(); // PORT: podglad zaznaczenia - wyciecie face[] (ekrany 4 i 5)
     ShowBackground();
+    GetImage13h(278, 7, 299, 28, polOknoTlo); // PORT: tlo okienka podgladu z tla panelu
     ShowPanel(0, 0, 0, 0, 0);
     if (Map)
       PressButton(16, 2);
@@ -302,6 +380,7 @@ void Battle(int type) // 1-single start   0-rs   2-loaded
     ////////////dotad///////
     castle[0].Run();
     castle[1].Run();
+    POL_UnitHealTick(); // PORT: leczenie rannych (rozgrzewka przed petla)
     castle[0].Prepare(ScreenX, ScreenY, 1);
     castle[1].Prepare(ScreenX, ScreenY, 1);
     ShowSelected();
@@ -338,6 +417,7 @@ void Battle(int type) // 1-single start   0-rs   2-loaded
 
         castle[0].Run();
         castle[1].Run();
+        POL_UnitHealTick(); // PORT: leczenie rannych (petla glowna symulacji)
         castle[0].Prepare(ScreenX, ScreenY, 1);
         castle[1].Prepare(ScreenX, ScreenY, 1);
 
@@ -703,6 +783,9 @@ void ShowSelected() {
       }
     }
     SetClippingArea13h(0, 0, 319, 199);
+
+    // PORT: podglad zaznaczonego obiektu w okienku panelu (feature wersji CD)
+    ShowSelectionPreview();
 
     ///////////// wypisz mleko /////////////////////////////////
     PutImage13h(299, 9, drewno[2], 0); //???

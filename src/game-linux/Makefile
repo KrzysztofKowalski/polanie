@@ -34,13 +34,23 @@ CPPFLAGS := -I$(INCDIR) -I$(PORTDIR) -I$(GAME) $(SDL3FLAGS) $(OPENMPTFLAGS) \
             -include $(INCDIR)/polshim.h -MMD -MP
 
 # pliki gry kompilowane bez zmian (z katalogu game/)
-# PORT: battle przeniesiony do src/battle.cpp (kopia 1:1 + logi diagnostyczne
-# "// PORT:" pod POL_MOUSE_DEBUG=1) - logika gry bez zmian
-GAME_OBJS := graphics ladowani mapa mover1 opiswava world
+# PORT: battle, graphics, mover1 i mapa przeniesione do src/ (kopie 1:1 +
+# oznaczone "// PORT:")
+GAME_OBJS := ladowani opiswava world
 # pliki portowane (kopie z katalogu src/, oznaczone "// PORT:")
 # PORT: battle dołączony do portowanych - kopia w src/battle.cpp (logika bez
 # zmian, tylko logi diagnostyczne "// PORT:" pod POL_MOUSE_DEBUG=1)
-PORT_OBJS := main image13h mouse menegdma cd dpmi playfli battle
+# PORT: graphics - kopia w src/graphics.cpp (logika bez zmian, jedno zakrycie
+# wypalonego napisu "Koniec" z tla menu koncowego, patrz
+# raporty/krowy-zdrowie-i-font-end-menu.md)
+# PORT: mover1 - kopia w src/mover1.cpp (logika 1:1 + Fix A/B/C blokady
+# naprawy budynku przez kilku robotnikow naraz, patrz
+# raporty/naprawa-wielu-robotnikow.md; game/mover1.cpp zostaje lustrem)
+# PORT: mapa - kopia w src/mapa.cpp (kopia 1:1 + fix offsetu overlayu poziomu
+# trudnosci na mapie podboju 268/313 -> 272/317, patrz
+# raporty/overlay-poziomu-mapakampanii.md)
+PORT_OBJS := main image13h mouse menegdma cd dpmi playfli battle unit_heal \
+             graphics mover1 mapa
 # nowa warstwa SDL2
 LAYER_OBJS := port_sdl port_shims port_fopen port_audio sound_dat \
               midi_parser midi_map_files sfz_engine mix_simd port_gpu
@@ -69,13 +79,11 @@ $(BUILD):
 # PORT: battle.o z kopii src/battle.cpp (logika bez zmian + logi diagnostyczne)
 $(BUILD)/battle.o: $(SRCDIR)/battle.cpp $(wildcard $(GAME)/*.h)
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c $< -o $@
-$(BUILD)/graphics.o: $(GAME)/graphics.cpp $(wildcard $(GAME)/*.h)
+# PORT: graphics.o z kopii src/graphics.cpp (kopia 1:1 + zakrycie wypalonego
+# napisu "Koniec" z tla menu koncowego)
+$(BUILD)/graphics.o: $(SRCDIR)/graphics.cpp $(wildcard $(GAME)/*.h)
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c $< -o $@
 $(BUILD)/ladowani.o: $(GAME)/ladowani.cpp $(wildcard $(GAME)/*.h)
-	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c $< -o $@
-$(BUILD)/mapa.o: $(GAME)/mapa.cpp $(wildcard $(GAME)/*.h)
-	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c $< -o $@
-$(BUILD)/mover1.o: $(GAME)/mover1.cpp $(wildcard $(GAME)/*.h)
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c $< -o $@
 $(BUILD)/opiswava.o: $(GAME)/opiswava.cpp $(wildcard $(GAME)/*.h)
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c $< -o $@
@@ -96,6 +104,19 @@ $(BUILD)/cd.o: $(SRCDIR)/cd.cpp
 $(BUILD)/dpmi.o: $(SRCDIR)/dpmi.cpp
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c $< -o $@
 $(BUILD)/playfli.o: $(SRCDIR)/playfli.cpp
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c $< -o $@
+# PORT: nowa mechanika - leczenie rannych jednostek mlekiem zamku + krowy
+# (naturalne samoleczenie); czyste funkcje balansu testuje test_unit_heal
+$(BUILD)/unit_heal.o: $(SRCDIR)/unit_heal.cpp $(PORTDIR)/port.h \
+                      $(wildcard $(GAME)/*.h)
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c $< -o $@
+# PORT: mover1.o z kopii src/mover1.cpp (kopia 1:1 game/mover1.cpp + Fix A/B/C
+# blokady naprawy wielu robotnikow naraz, raporty/naprawa-wielu-robotnikow.md)
+$(BUILD)/mover1.o: $(SRCDIR)/mover1.cpp $(wildcard $(GAME)/*.h)
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c $< -o $@
+# PORT: mapa.o z kopii src/mapa.cpp (kopia 1:1 + wspolrzedne overlayu
+# poziomu trudnosci 268/313 -> 272/317, patrz raporty/overlay-poziomu-mapakampanii.md)
+$(BUILD)/mapa.o: $(SRCDIR)/mapa.cpp $(wildcard $(GAME)/*.h)
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c $< -o $@
 
 # --- warstwa SDL2 ---
@@ -164,7 +185,7 @@ TESTDIR := tests
 TESTY := $(BUILD)/testy
 TEST_SRCS := test_main test_fopen test_image13h test_cd test_audio test_paire \
              test_stubs test_sfx test_midi test_sfz test_palette_lut \
-             test_char_semantics
+             test_char_semantics test_unit_heal
 TEST_OBJS := $(addprefix $(BUILD)/,$(TEST_SRCS:%=%.o))
 GTEST_CFLAGS := $(shell pkg-config --cflags gtest 2>/dev/null)
 GTEST_LIBS := $(shell pkg-config --libs gtest 2>/dev/null || echo -lgtest)
@@ -181,14 +202,16 @@ $(BUILD)/test_%.o: $(TESTDIR)/test_%.cpp $(wildcard $(TESTDIR)/*.h)
 # POL_ResolveDataFile, parsowanie SOUND.DAT) bez urzadzenia audio ani okna
 # PORT: midi_parser/midi_map_files/mix_simd/sfz_engine - nowe tory (SMF,
 # mapa .mid, AVX2 vs scalar, sfizz z syntetycznym .sfz); sfizz w SFIZZLIBS
+# PORT: unit_heal.o - czyste funkcje balansu leczenia (test_unit_heal); symbol
+# castle dostarcza sam test (definicja + puste ctory Mover1 w test_unit_heal)
 $(TESTY): $(TEST_OBJS) $(BUILD)/port_fopen.o $(BUILD)/port_shims.o \
           $(BUILD)/image13h.o $(BUILD)/cd.o $(BUILD)/sound_dat.o \
           $(BUILD)/midi_parser.o $(BUILD)/midi_map_files.o \
-          $(BUILD)/mix_simd.o $(BUILD)/sfz_engine.o
+          $(BUILD)/mix_simd.o $(BUILD)/sfz_engine.o $(BUILD)/unit_heal.o
 	$(CXX) -std=c++20 -o $@ $^ $(GTEST_LIBS) -pthread $(SFIZZLIBS)
 
 test: $(TESTY)
-	$(TESTY)
+	./$(TESTY)
 
 testy: test
 

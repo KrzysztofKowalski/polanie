@@ -1,7 +1,8 @@
 // PORT: testy mapowania PlayTrack(n) -> modul S3M (port/track_map.h,
 // uzyte przez port_audio.cpp). Tabela bez SDL/libopenmpt - testy linkuja
 // sam naglowek. Kotwice: 2=menu, 3=teksty, 4=porazka, 5=zwyciestwo,
-// 6-14=plansze (zapetlane), poza zakresem = brak modulu (cicho).
+// 6-14=plansze (zapetlane), teksty (3) tez zapetla, poza zakresem = brak
+// modulu (cicho).
 #include <gtest/gtest.h>
 
 #include "track_map.h" // -Iport
@@ -16,7 +17,9 @@ TEST(MapowanieUtworow, KotwiceFabuly) {
   const TrackMap *txt = find_track(3);
   ASSERT_NE(txt, nullptr);
   EXPECT_EQ(txt->module, 3);   // GRAF_003 "intro"
-  EXPECT_EQ(txt->loop, 0);     // teksty graja raz
+  // teksty zapetlaja: modul S3M jest krotszy niz sekwencja napisow
+  // (oryginalny utwor CD trwal minuty); StopPlaying() po napisach go ucina
+  EXPECT_EQ(txt->loop, 1);
 
   const TrackMap *defeat = find_track(4);
   ASSERT_NE(defeat, nullptr);

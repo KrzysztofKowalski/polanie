@@ -13,9 +13,10 @@
 // TRACK_VICTORY=5; plansze = Track[52] (game/battle.cpp:82) o wartosciach
 // 6-14. Ktore "plansze N" odpowiadaja ktorym numerom utworow CD - hipoteza
 // (kolejnosc tytulow), do weryfikacji na sluch; tablica jest w jednym miejscu.
-// Zapetlamy: menu (2) i plansze (6-14); teksty/porazka/zwyciestwo raz
-// (w oryginale CD gralo od utworu do konca plyty, a battle.cpp po tekscie
-// fabuly robil StopPlaying - game/battle.cpp:247).
+// Zapetlamy: menu (2), plansze (6-14) i teksty (3) - modul S3M jest krotszy
+// niz sekwencja napisow, a oryginalny utwor CD trwal minuty (gral do konca
+// plyty), wiec bez petli po paru nutach nastepowala cisza; StopPlaying()
+// po napisach (battle.cpp:247) i tak go ucina. Porazka/zwyciestwo raz.
 #ifndef POL_TRACK_MAP_H
 #define POL_TRACK_MAP_H
 
@@ -26,7 +27,7 @@ struct TrackMap {
 };
 
 static const TrackMap kTrackMap[] = {
-    {2, 2, 1},  {3, 3, 0},   {4, 7, 0},  {5, 6, 0},  // menu/txt/defeat/victory
+    {2, 2, 1},  {3, 3, 1},   {4, 7, 0},  {5, 6, 0},  // menu/txt/defeat/victory
     {6, 12, 1}, {7, 13, 1},  {8, 14, 1}, {9, 16, 1}, // plansze
     {10, 17, 1}, {11, 18, 1}, {12, 4, 1}, {13, 11, 1}, {14, 15, 1},
 };
