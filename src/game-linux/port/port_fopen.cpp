@@ -485,8 +485,10 @@ static bool stem_match(const std::vector<std::string> &names,
 // normalizujemy sciezke, enumerujemy katalog i szukamy wpisu o tym samym
 // stemie, dowolne rozszerzenie (.dat w danych DOS, .wav w ekstrakcie).
 // Kolejno: katalog danych (podkatalog z zadanej sciezki, case-insensitive
-// od CWD i od bazy), ekstrakt extracted/audio/dzwieki/. Zwraca wskaznik na
-// statyczny bufor albo NULL.
+// od CWD i od bazy), ekstrakt extracted/audio/dzwieki/, dane pelnej wersji
+// CD (cd/polanie_cd - instalator scripts/install.sh --cd; tam sa I001-I003
+// i W059, ktorych kopia demo nie ma). Zwraca wskaznik na statyczny bufor
+// albo NULL.
 extern "C" const char *POL_ResolveDataFile(const char *dos) {
   static std::string keep;
   keep.clear();
@@ -516,5 +518,15 @@ extern "C" const char *POL_ResolveDataFile(const char *dos) {
     keep = std::string(ed) + "/audio/dzwieki/" + hit;
     return keep.c_str();
   }
+  // 3. dane pelnej wersji CD (cd/polanie_cd - instalator scripts/install.sh
+  //    --cd; tam sa I001-I003 i W059, ktorych kopia demo nie ma); ostatni
+  //    kandydat, kopia demo ma pierwszenstwo
+  static const char *extra_dirs[] = {
+      "cd/polanie_cd/DATA", "../cd/polanie_cd/DATA", NULL};
+  for (int i = 0; extra_dirs[i]; i++)
+    if (stem_match(list_dir_cached(extra_dirs[i]), stem.c_str(), &hit)) {
+      keep = std::string(extra_dirs[i]) + "/" + hit;
+      return keep.c_str();
+    }
   return NULL;
 }

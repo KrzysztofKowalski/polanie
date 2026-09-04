@@ -87,9 +87,17 @@ const char *POL_ExtractedDir(void);
 
 // PORT: rozwiazanie sciezki DOS do realnego pliku po stemie nazwy (bez
 // rozszerzenia): katalog danych ("data\\W001.dat" -> DATA/W001.DAT), potem
-// ekstrakt (extracted/audio/dzwieki/W001.wav). Zwraca statyczny bufor albo
-// NULL. Tor efektow (port_audio.cpp) i testy jednostkowe.
+// ekstrakt (extracted/audio/dzwieki/W001.wav), potem dane pelnej wersji CD
+// (cd/polanie_cd - instalator scripts/install.sh --cd). Zwraca statyczny
+// bufor albo NULL. Tor efektow (port_audio.cpp) i testy jednostkowe.
 const char *POL_ResolveDataFile(const char *dos);
+
+// ---------- symulacja: leczenie rannych (src/unit_heal.cpp) ----------
+// PORT: nowa mechanika - krowy lecza sie naturalnie za darmo (obie strony),
+// ranne jednostki GRACZA lecza sie mlekiem z zapasow zamku (tylko castle[0],
+// gdy zapasy >= 75% pojemnosci). Wywolywane co klatke symulacji z Battle()
+// (src/battle.cpp), krok robi co POL_HEAL_INTERVAL / POL_COW_HEAL_INTERVAL.
+void POL_UnitHealTick(void);
 
 // ---------- audio ----------
 // PORT: przeniesione do port_audio.h (mikser: muzyka S3M przez libopenmpt +
