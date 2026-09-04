@@ -33,6 +33,7 @@ kolorów), skalowanie robi okno/gamescope.
 
 Debian/Ubuntu: `sudo apt install g++ make pkg-config libsdl3-dev libopenmpt-dev libsfizz-dev unzip p7zip-full`
 Arch/Omarchy: `sudo pacman -S --needed base-devel sdl3 libopenmpt sfizz unzip p7zip`
+Arch/Omarchy (automatycznie): `bash scripts/install_deps.sh`
 
 ## Szybki start
 
