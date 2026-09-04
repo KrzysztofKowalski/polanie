@@ -33,6 +33,38 @@ static int quit_req = 0;
 // i POL_GetScale musza to uwzgledniac - patrz nizej).
 static int video_is_gpu = 0;
 
+// PORT: liczniki diagnostyczne (POL_FPS_LOG=1 albo POL_MOUSE_DEBUG=1):
+// pompy zdarzen, proby prezentacji i wykonane prezentacje; log co ~5 s.
+// Pozwala potwierdzic cyferka, ile prezentacji na sekunde realnie robi dana
+// petla gry (diagnoza zuzycia CPU: petle bitwy/menu vs dlawik prezentacji).
+static unsigned int g_pumps = 0, g_present_calls = 0, g_present_done = 0;
+static unsigned long long g_fps_window_ms = 0;
+static int g_fps_on = -1;
+
+static void fps_log_tick(void) {
+  if (g_fps_on < 0)
+    g_fps_on = (getenv("POL_FPS_LOG") || getenv("POL_MOUSE_DEBUG")) ? 1 : 0;
+  if (!g_fps_on)
+    return;
+  g_pumps++;
+  unsigned long long now = SDL_GetTicks();
+  if (!g_fps_window_ms) {
+    g_fps_window_ms = now;
+    return;
+  }
+  unsigned long long dt = now - g_fps_window_ms;
+  if (dt >= 5000) {
+    fprintf(stderr,
+            "PORT: FPS: pompy=%u/s, present zadane=%u/s, wykonane=%u/s "
+            "(okno %llu ms, backend=%s)\n",
+            g_pumps * 1000u / (unsigned)dt, g_present_calls * 1000u / (unsigned)dt,
+            g_present_done * 1000u / (unsigned)dt, dt,
+            video_is_gpu ? "gpu" : "renderer");
+    g_pumps = g_present_calls = g_present_done = 0;
+    g_fps_window_ms = now;
+  }
+}
+
 static void palette_update_lut(void) {
   // DAC VGA trzyma 6 bitow (0-63) -> 8 bitow (POL_Dac6To8, port.h); slowo
   // ARGB -> w pamieci bajty B,G,R,A (format ARGB8888 little-endian).
@@ -200,6 +232,27 @@ void POL_SetPalette(const unsigned char *p) {
 }
 
 void POL_Present(void) {
+  // PORT: globalny dlawik prezentacji (~60 fps) - JEDNO miejsce dla obu
+  // backendow (renderer i GPU), bo POL_Present jest jedynym wejsciem na ekran.
+  // Wczesniej dlawiona byla tylko prezentacja z pompy zdarzen, a jawne
+  // POL_Present z kodu gry szlo bez dlawika - a ShowVirtualScreen
+  // (src/image13h.cpp:52) jest wolane co iteracje spin-petli bitwy
+  // (src/battle.cpp:532 ShowSelected -> 1153 ShowVirtualScreen), ktora
+  // czeka busy-waitem na tik zegara 18.2 Hz: bez dlawika to rzad TYSIECY
+  // prezentacji na sekunde (renderer powstaje bez vsync). Dlawik nie
+  // spowalnia zegara 18.2 Hz (osobny watek timera SDL, src/menegdma.cpp)
+  // ani odczytu wejscia (pompa zdarzen leci dalej pelna predkoscia - dlawiona
+  // jest wylacznie prezentacja obrazu; gra ma ~18 klatek logicznych/s).
+  // Pierwsza prezentacja idzie natychmiast (fix mapowania okna na Waylandzie).
+  g_present_calls++;
+  {
+    static unsigned long long last_present_ms = 0;
+    unsigned long long now = SDL_GetTicks();
+    if (last_present_ms && now - last_present_ms < 15)
+      return;
+    last_present_ms = now;
+    g_present_done++;
+  }
   // PORT: GPU backend - cala prezentacja (konwersja LUT, upload, quad ze
   // shaderem, vsync) zyje w port_gpu.cpp; fb pozostaje ten sam bufor gry.
   if (video_is_gpu) {
@@ -346,7 +399,10 @@ static void mouse_from_game_coords(float gx, float gy) {
 
 void POL_PumpEvents(void) {
   SDL_Event e;
+  // PORT: czy pompa cos przelapala - do backoffu petli busy-wait (nizej)
+  int got = 0;
   while (SDL_PollEvent(&e)) {
+    got = 1;
     switch (e.type) {
     case SDL_EVENT_QUIT:
       quit_req = 1;
@@ -460,18 +516,25 @@ void POL_PumpEvents(void) {
   // i nigdzie nie wołaja ShowVirtualScreen, wiec prezentujemy bufor przy
   // kazdym pompowaniu zdarzen (ReadMouse13h/kbhit leca w petlach gry).
   // Bez tego Wayland nie zmapuje okna (brak pierwszej ramki).
-  // PORT: ale petle gry pompuja 4-6 razy na iteracje (MousePos/Ile/kbhit),
-  // a kazda prezentacja to pelna konwersja 64000 pikseli + UpdateTexture -
-  // dlawimy do ~60 fps. Jawne POL_Present po rysowaniu (playfli, image13h)
-  // zostaje natychmiastowe.
-  {
-    static unsigned long long last_pump_present_ms = 0;
+  // PORT: dlawienie prezentacji siedzi JEDNO w POL_Present (dlatego wolamy
+  // go tu za kazdym razem) - obejmuje takze jawne POL_Present z kodu gry
+  // (ShowVirtualScreen co iteracje spin-petli bitwy, playfli).
+  // PORT: petle gry (menu, spin-petla bitwy, GButtonUp, czekanie na klik)
+  // kreca sie bez zadnego czekania - jak pod DOS-em (busy-wait na int 33h /
+  // int 16h). Pompa bez zdarzen, ktora nastapila <2 ms po poprzedniej pustej,
+  // zasypia 1 ms: petle czekajace na wejscie schodza z ~100% rdzenia do ~1%,
+  // a opoznienie dostarczenia wejscia rosnie o najwyzej 1-2 ms (kolejka SDL
+  // trzyma zdarzenia miedzy pompami; lepki bit kliku ma 200 ms zapasu).
+  // Zegar 18.2 Hz to osobny watek timera SDL i niczego tu nie czeka.
+  if (!got) {
+    static unsigned long long last_empty_pump_ms = 0;
     unsigned long long now = SDL_GetTicks();
-    if (!last_pump_present_ms || now - last_pump_present_ms >= 15) {
-      last_pump_present_ms = now;
-      POL_Present();
-    }
+    if (last_empty_pump_ms && now - last_empty_pump_ms < 2)
+      SDL_Delay(1);
+    last_empty_pump_ms = SDL_GetTicks();
   }
+  POL_Present();
+  fps_log_tick();
 }
 
 int POL_QuitRequested(void) {
