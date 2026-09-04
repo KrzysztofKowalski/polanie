@@ -481,6 +481,12 @@ g++ -std=c++20 -O2 -o "$EPHE/install/polanie-extract" "$SRC/tools/polanie_extrac
 echo "  gotowe: ephemeral/install/polanie-extract"
 
 log "5/6 Ekstrakcja zasobow -> ephemeral/extracted"
+# pliki z archiwow moga miec atrybut DOS read-only (arj/zip) - w ekstrakcie
+# blokowalyby nadpisywanie (fs::copy_file overwrite_existing), wiec
+# odblokowujemy zapis dla wlasciciela
+if [ -d "$EPHE/extracted" ]; then
+  chmod -R u+rwX "$EPHE/extracted" 2>/dev/null || true
+fi
 "$EPHE/install/polanie-extract" "$DYSK" "$EPHE/extracted"
 
 log "6/6 Weryfikacja danych (src/tools/check_assets.cpp)"
