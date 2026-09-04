@@ -1,0 +1,11 @@
+# wszystko, co powstaje w czasie instalacji i budowy
+ephemeral/
+
+# klasyczne resztki builda (na wypadek pracy poza ephemeral)
+build/
+pol2
+testy
+save.00*
+*.spv
+core
+tmp/

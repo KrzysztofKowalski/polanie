@@ -1,0 +1,19 @@
+NOTICE
+======
+
+Kod gry „Polanie" (DOS, 1997) © 1997 MDF/Play. Wszelkie prawa do gry
+i jej zasobów należą do twórców.
+
+Źródła gry pochodzą z publicznego repozytorium jstasiak/polanie-src
+(kod źródłowy rozpowszechniany historycznie wraz z wersją gry). Ten
+katalog zawiera jedynie przenośnięcie (port) tego kodu na Linux (SDL3)
+oraz narzędzia do ekstrakcji zasobów.
+
+Repozytorium NIE zawiera danych gry (GRAF.DAT, PAL.DAT, pliki audio,
+tekstury i in.). Skrypt scripts/install.sh pobiera dane z publicznego
+mirrora strony polanie.prv.pl
+(https://github.com/jstasiak/polanie.prv.pl-mirror) i składa je lokalnie
+w katalogu ephemeral/. Prawa do zasobów pozostają przy MDF/Play; używaj
+ich wyłącznie z posiadaną legalną kopią gry.
+
+Port Linux (SDL3): 2026, licencja MIT — patrz LICENSE.
