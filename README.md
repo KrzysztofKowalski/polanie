@@ -7,11 +7,11 @@ kompatybilności (shimami) mapującą DOS-owe API na SDL3: wideo, wejście, dźw
 timery i system plików. Rozdzielczość gry pozostaje oryginalna (320×200, 256
 kolorów), skalowanie robi okno/gamescope.
 
-![Screen 1](screen/image1.png)
-![Screen 2](screen/image2.png)
-![Screen 3](screen/image3.png)
-![Screen 4](screen/image4.png)
-![Screen 5](screen/image5.png)
+![Screen 1](screen/image1.webp)
+![Screen 2](screen/image2.webp)
+![Screen 3](screen/image3.webp)
+![Screen 4](screen/image4.webp)
+![Screen 5](screen/image5.webp)
 
 ## Cechy portu
 
