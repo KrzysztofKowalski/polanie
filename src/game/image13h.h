@@ -41,12 +41,15 @@ void DownPalette(int);
 void RisePalette(int);
 void BlackPalette(void);
 void ClearText13h();
-void OutText13h(int x, int y, char *text, int colour);
-void OutTextDelay13h(int x, int y, char *text, int colour1, int colour2,
+// PORT: const char* - funkcje tylko czytaja tekst (C++23: literaly do char*
+// to blad bez -fpermissive); CenterText13h obcina na kopii lokalnej
+void OutText13h(int x, int y, const char *text, int colour);
+void OutTextDelay13h(int x, int y, const char *text, int colour1, int colour2,
                      int del);
 int InitText13h(); //    il.liter | tekst | kolor liter  i  tla
 int Write13h(int x, int y, int maxx, int maxdl, char *, int tcolour,
              int bcolour);
-void CenterText13h(int xl, int yg, int xp, int yd, char *text, int colour);
+void CenterText13h(int xl, int yg, int xp, int yd, const char *text,
+                   int colour); // PORT: const char* - patrz wyzej
 //               lewy gorny     |  prawy dolny
 #endif

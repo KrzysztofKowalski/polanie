@@ -10,8 +10,10 @@
 # Tor OPL (openmpt123) nie wymaga kompilacji — to CLI systemowe (libopenmpt).
 
 # PORT: spójnie z game-linux/Makefile — clang + C++23 + warningi (GCC nadal:
-# make -f game-linux/tools.mk CXX=g++ CXXFLAGS='-std=c++20 -O2 -Wall')
-CXX      ?= clang++
+# make -f game-linux/tools.mk CXX=g++ CXXFLAGS='-std=c++20 -O2 -Wall').
+# PORT: CXX = clang++ (twardo, nie ?=) — GNU make ma wbudowaną zmienną CXX=g++
+# (origin "default"), która wygrywa z ?= (to nadpisuje tylko niezdefiniowane).
+CXX      = clang++
 CXXFLAGS ?= -std=c++23 -O2 -Wall -Wextra
 SFIZZ_LIBS ?= -lsfizz
 

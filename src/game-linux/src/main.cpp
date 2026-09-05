@@ -33,7 +33,7 @@ char *Buttons[4]; // moze byc [8] bo save i smenu to te same przyciski
 char drive[4] = "./"; // PORT: dane gry czytane z katalogu biezacego /
                       // game-linux/port/port_fopen.cpp (POLANIE_DATA)
 //======zmienne extern===========
-extern int licznik;
+extern volatile int licznik; // PORT: volatile - pisany z callbacku zegara
 extern char prowintion[25];
 extern char prowintionInit[25];
 // extern char hasla[10];
@@ -61,7 +61,9 @@ extern int GetMemory(void);
 //////////////////////////////////////////
 extern int ladowanie(void);
 // PORT: funkcje rysujace z image13h.cpp
-extern void OutText13h(int, int, char *, int);
+// PORT: const char* - zgodnie z image13h.h (stara deklaracja char* tworzyla
+// martwy overload bez definicji -> link error przy wywolaniu z char*)
+extern void OutText13h(int, int, const char *, int);
 extern void Bar13h(int, int, int, int, int);
 
 int IsFile(char *);
@@ -310,7 +312,7 @@ void MainMenuDispatchEvent(void) {
       endGame = 0;
       show = 1;
     }
-    return 0;  }
+    return;  } // PORT: bylo return 0 (dziedzictwo Watcomu) - funkcja jest void
 }
 ////////////////////////////////////////////////////////////////////////
 //   Przyciski
@@ -503,7 +505,7 @@ void NewGame() {
       }
       /////////
       if (mouse.MWindow(235, 160, 304, 182)) {
-    return 0;      }
+    return;      } // PORT: bylo return 0 (Watcom) - void bez wartosci
       // diff
       for (int i = 0; i < 3; i++)
 
@@ -523,11 +525,11 @@ void NewGame() {
     Battle(1);
     endGame = 0;
     PlayTrack(2);
-    return 0;  } else {
+    return;  } else { // PORT: bylo return 0 (Watcom) - void bez wartosci
     Battle(1);
     endGame = 0;
     PlayTrack(2);
-    return 0;  }
+    return;  } // PORT: bylo return 0 (Watcom) - void bez wartosci
 }
 
 int IsFile(char *name) {
