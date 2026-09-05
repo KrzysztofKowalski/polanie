@@ -272,6 +272,13 @@ int licznik2 = 0;
 // wierzchu paska (w CD okno rowniez nachodzilo na pasek mleka).
 static char polFaceBuf[16 * (32 * 21 + 6)];   // 16 kafli 32x21 (portret/budynek)
 static char polGniazdoTlo[6 + 18 * 16];       // tlo gniazda 0 (274,18)-(291,33)
+// PORT: tla pod paskami hp/magii NA ZEWNATRZ kwadratu portretu (jak w CD):
+// lewy (272,7)-(275,27) - odpowiednik drewno[0] z CD (game/graphics.cpp:770),
+// prawy (310,7)-(313,8) - tylko 2 gorne wiersze, bo dolna czesc (y9-27) lezy na
+// ramce paska mleka (299,9)-(314,150) i jest odnawiana co klatke przez
+// PutImage13h(299,9,drewno[2])
+static char polPasekTloL[6 + 4 * 21];         // tlo lewego paska hp (4x21)
+static char polPasekTloP[6 + 4 * 2];          // tlo prawego paska (4x2)
 
 // PORT: wycina face[] z arkuszy 4 i 5; wolac po SetScreen(1), przed
 // ShowBackground() (ktory i tak odtwarza ekran 3 w tle panelu)
@@ -289,17 +296,25 @@ static void InitSelectionPreview(void) {
     GetImage13h(i * 32, 168, i * 32 + 32, 189, face[10 + i]);
 }
 
-// PORT: pionowy pasek 3x21 na krawedzi okienka podgladu (x,y = lewy gorny rog;
-// lewy pasek x=278, prawy x=307); czarny tor, wypelnienie od dolu. Kolory jak przy paskach na mapie
-// (mover1.cpp:2259-2272): zdrowie LightGreen/Yellow/LightRed, magia LightBlue.
-static void PolPasekPanel(int x, int y, int wart, int maks, int kolor) {
+// PORT: pionowy pasek 4x21 NA ZEWNATRZ kwadratu portretu (okienko
+// (278,7)-(309,27)), jak w wersji CD: lewy (272,7)-(275,27) po lewej stronie
+// okienka (x=272), prawy (310,7)-(313,27) na prawej krawedzi ramki paska
+// mleka (299,9)-(314,150) (x=310). Bez czarnego toru - wymaz przez tlo z
+// wyciecia (odpowiednik drewno[0] z CD, game/graphics.cpp:770; prawy pasek
+// ma zapisane tylko 2 gorne wiersze, dolna czesc czysci ramka mleka co
+// klatke). Wypelnienie od dolu, 4 px szerokie, wiersze y7..27. Bar13h jest
+// nieinkluzywny (image13h.cpp: length=x2-x1, petla j<y2): Bar13h(x,...,x+4)
+// wypelnia x..x+3, Bar13h(...,7,...,28) wypelnia wiersze 7..27. Kolory jak
+// przy paskach na mapie (mover1.cpp:2259-2272): zdrowie
+// LightGreen/Yellow/LightRed, magia LightBlue.
+static void PolPasekPanel(int x, char *tlo, int wart, int maks, int kolor) {
   int h;
-  Bar13h(x, y, x + 2, y + 20, Black);
+  PutImage13h(x, 7, tlo, 0); // wymaz tla paska (jak w CD: drewno[0])
   if (maks > 0 && wart > 0) {
     h = wart * 21 / maks;
     if (h > 21)
       h = 21;
-    Bar13h(x, y + 21 - h, x + 2, y + 20, kolor);
+    Bar13h(x, 28 - h, x + 4, 28, kolor);
   }
 }
 
@@ -333,8 +348,11 @@ static void ShowSelectionPreview(void) {
     }
   }
   if (!tw) {
-    // PORT: nic nie zaznaczone - odtworz tlo okienka (drewno[1], jak w
-    // edytorze) i ramke gniazda 0: panel wraca do widoku dyskietkowego
+    // PORT: nic nie zaznaczone - wymaz paskow hp/magii (tla z wyciecia), tlo
+    // okienka (drewno[1], jak w edytorze) i ramka gniazda 0: panel wraca do
+    // widoku dyskietkowego
+    PutImage13h(272, 7, polPasekTloL, 0);
+    PutImage13h(310, 7, polPasekTloP, 0);
     PutImage13h(278, 7, drewno[1], 0);
     PutImage13h(274, 18, Buttons[3], 0);
     return;
@@ -355,24 +373,29 @@ static void ShowSelectionPreview(void) {
          // jak portret w edytorze (graphic1.cpp:1005)
       PutImageChange13h(278, 7, face[idx], 0, color1, color2);
   }
-  // PORT: paski WEWNATRZ okienka podgladu (278,7)-(309,27), na jego
-  // krawedziach, rysowane po portrecie (jak w wersji CD - zrzut usera):
-  // tlo okienka (drewno[1]) rysowane co klatke kasuje je przy zmianie
-  // zaznaczenia/odznaczeniu, wiec nie trzeba zapisywac teł pod nimi.
-  // Lewy (278-280): zdrowie. Prawy (307-309): magia, TYLKO dla jednostek
-  // z magic > 0 (kaplanka/kaplan/mag) - przy jednostce bez magii zadny pasek
-  // (czarny tor wygladal jak usterka). Dla budynku oba paski to zdrowie.
+  // PORT: paski NA ZEWNATRZ kwadratu portretu (okienko (278,7)-(309,27)), jak
+  // w wersji CD - lewy (272,7)-(275,27) 4 px z zapisanym tlem (odpowiednik
+  // drewno[0], game/graphics.cpp:770), prawy (310,7)-(313,27) na prawej
+  // krawedzi ramki mleka (299,9)-(314,150), bez czarnego toru. Tlo okienka
+  // (drewno[1]) rysowane co klatke nie nachodzi na pasy (x278-309), a ramka
+  // mleka (299,9) i tak odnawia y9-27 pod prawym pasem. Lewy: zdrowie.
+  // Prawy: magia TYLKO dla jednostek z magic > 0 (kaplanka/kaplan/mag);
+  // przy jednostce bez magii prawy pas wymazywany tlem (resztki po
+  // poprzednio zaznaczonej jednostce z magia). Dla budynku oba paski to
+  // zdrowie.
   if (tw == 2) {
-    PolPasekPanel(278, 7, selectB->hp, selectB->maxhp,
+    PolPasekPanel(272, polPasekTloL, selectB->hp, selectB->maxhp,
                   PolKolorHp(selectB->hp, selectB->maxhp));
-    PolPasekPanel(307, 7, selectB->hp, selectB->maxhp,
+    PolPasekPanel(310, polPasekTloP, selectB->hp, selectB->maxhp,
                   PolKolorHp(selectB->hp, selectB->maxhp));
   } else {
-    PolPasekPanel(278, 7, selectM->hp, selectM->maxhp,
+    PolPasekPanel(272, polPasekTloL, selectM->hp, selectM->maxhp,
                   PolKolorHp(selectM->hp, selectM->maxhp));
     if (selectM->magic)
-      PolPasekPanel(307, 7, selectM->magic, dmagic[selectM->exp >> 4],
-                    LightBlue);
+      PolPasekPanel(310, polPasekTloP, selectM->magic,
+                    dmagic[selectM->exp >> 4], LightBlue);
+    else
+      PolPasekPanel(310, polPasekTloP, 0, 0, 0);
   }
 }
 //==============================================================================
@@ -412,6 +435,8 @@ void Battle(int type) // 1-single start   0-rs   2-loaded
     InitSelectionPreview(); // PORT: podglad zaznaczenia - wyciecie face[] (ekrany 4 i 5)
     ShowBackground();
     GetImage13h(274, 18, 292, 34, polGniazdoTlo); // PORT: tlo gniazda 0 z tla panelu (do wymazania tarczy "Stoj" przy podgladzie)
+    GetImage13h(272, 7, 276, 28, polPasekTloL);   // PORT: tlo pod lewym paskiem hp (odpowiednik drewno[0] z CD, game/graphics.cpp:770)
+    GetImage13h(310, 7, 314, 9, polPasekTloP);    // PORT: tlo pod prawym paskiem, 2 wiersze nad ramka mleka (dol czysci ramka co klatke)
     ShowPanel(0, 0, 0, 0, 0);
     if (Map)
       PressButton(16, 2);
