@@ -93,7 +93,7 @@ public:
 
   int Odtwarzaj(int);
   int operator()(int);
-  int MENEGERDMA::LoadGlobalData(char *, int);
+  int LoadGlobalData(char *, int);
 
   int ZaladujWAV_z_dysku(char *nazwa_pliku, opisWAVa *wav);
 };

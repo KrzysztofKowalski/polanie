@@ -21,7 +21,9 @@
 #      + generacja stubu webowego (brak port_gpu / sfz_engine).
 #   2. Muzyka: tryb pełny — libopenmpt pod Emscripten (klon + build + .a);
 #      tryb --bez-muzyki — bez libopenmpt (wbudowany stub w port_audio.cpp).
-#   3. Kompilacja obiektów em++ (src/ + game/ + port/ + stub).
+#   3. Kompilacja obiektów em++ (src/ + game/ + port/ + stub) — em++ to clang:
+#      -std=c++23, -Wall -Wextra (spójnie z game-linux/Makefile). Wstępna
+#      walidacja składni całego buildu przed tą fazą: make clang-check.
 #   4. Dane gry -> ephemeral/web-data/ (rdzeń ~9,6 MB; SWIAT.DAT i DATA.003
 #      pomiń — port ich nie czyta).
 #   5. Link finalny: index.html + .js + .wasm + .data (--preload-file).
@@ -275,7 +277,10 @@ fi
 # ------------------------------------------------------------------ Faza 3 ---
 log 3 "kompilacja obiektów em++"
 
-CXXFLAGS_WEB="-std=c++17 -fpermissive -funsigned-char -w -O2"
+# PORT: em++ = clang — standard i warningi spójne z game-linux/Makefile
+# (C++23, -Wall -Wextra); -fpermissive jest GCC-only, -w wyłączałby warningi.
+# -funsigned-char zostaje: semantyka char Watcom (znaczniki placeN 190-227).
+CXXFLAGS_WEB="-std=c++23 -funsigned-char -Wall -Wextra -O2"
 # jak w game-linux/Makefile: -include polshim.h przed każdym plikiem
 SHIM="-include $GL/include/polshim.h"
 INC="-I$GL/include -I$GL/port -I$ROOT/game"
