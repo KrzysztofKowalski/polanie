@@ -47,7 +47,9 @@ static SDL_TimerID pol_timer = 0;
 static Uint32 pol_tick_cb(void *userdata, SDL_TimerID timerID, Uint32 interval) {
   (void)userdata;
   (void)timerID;
-  licznik++;
+  // PORT: licznik = licznik + 1 (nie licznik++) - volatile + operator++
+  // to deprecated form w C++20/23 (clang -Wdeprecated-volatile)
+  licznik = licznik + 1;
   // PORT: oryginal czyscil jest_odtwarzany w przerwaniu DMA po skonczeniu
   // probki (game/menegdma.cpp:332-335); tu robi to zegar 18.2 Hz, gdy mikser
   // (port_audio.cpp) skonczy grac wszystkie glosy efektow.

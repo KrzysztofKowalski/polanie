@@ -662,7 +662,7 @@ void OutTextDelay13h(int x, int y, const char *text, int colour1, int colour2,
   char *letter;
   unsigned char znak;
 
-  while (*text != NULL) {
+  while (*text != 0) { // PORT: bylo NULL (char != wskaznik-null; -Wnull)
     znak = Transform13h(*text);
     if (znak < 32 || znak > 32 + 91)
       return;
@@ -699,7 +699,7 @@ void CenterText13h(int xl, int yg, int xp, int yd, const char *text_in,
     bufor[n] = 0;
   }
   wsk = strlen(text);
-  while (*text != NULL) {
+  while (*text != 0) { // PORT: bylo NULL (char != wskaznik-null; -Wnull)
     ile = ile + length[*text - 32] - 1;
     if (ile > (xp - xl - 12))
       *text = 0; // PORT: bylo NULL (przypisanie do char - koniec napisu)
@@ -709,7 +709,7 @@ void CenterText13h(int xl, int yg, int xp, int yd, const char *text_in,
     text--;
 
   wsk = strlen(text);
-  while (*text != NULL) {
+  while (*text != 0) { // PORT: bylo NULL (char != wskaznik-null; -Wnull)
     dl = dl + length[*text - 32] - 1;
     text++;
   }
@@ -734,7 +734,7 @@ void OutText13h(int x, int y, const char *text, int colour) {
   char *letter;
   char znak;
 
-  while (*text != NULL) {
+  while (*text != 0) { // PORT: bylo NULL (char != wskaznik-null; -Wnull)
     znak = Transform13h(*text);
     letter = index[znak - 32];
     PutImageChange13h(x, y, letter, 1, 255, colour);
@@ -759,7 +759,7 @@ int Write13h(int x, int y, int maxx, int maxdl, char *txt, int tcolour,
   char k, l;
   char str[2] = {0, 0};
   wsk = strlen(txt);
-  while (*txt != NULL) {
+  while (*txt != 0) { // PORT: bylo NULL (char != wskaznik-null; -Wnull)
     ile = ile + length[*txt - 32] - 1;
     if (ile > maxx - 12)
       *txt = 0; // PORT: bylo NULL (przypisanie do char - koniec napisu)
@@ -774,7 +774,7 @@ int Write13h(int x, int y, int maxx, int maxdl, char *txt, int tcolour,
     else
       Bar13h(x, y, x + maxx, y + 14, bcolour);
     xp = x;
-    for (a = 0; a < strlen(txt); a++) {
+    for (a = 0; a < (int)strlen(txt); a++) { // PORT: cast - int vs size_t
       str[0] = txt[a];
       if (a == cx) {
         Bar13h(xp, y + 11, xp + length[txt[a] - 32], y + 12, tcolour);
@@ -785,7 +785,7 @@ int Write13h(int x, int y, int maxx, int maxdl, char *txt, int tcolour,
       xp += length[txt[a] - 32] - 1;
     }
 
-    if (cx == strlen(txt)) {
+    if (cx == (int)strlen(txt)) { // PORT: cast - int vs size_t
       Bar13h(xp, y + 11, xp + 8, y + 12, tcolour);
     }
     ll = strlen(txt);
@@ -825,9 +825,11 @@ int Write13h(int x, int y, int maxx, int maxdl, char *txt, int tcolour,
         break;
       default:
         if ((k > 31) && (ll < maxdl) && (xp < maxx + x - 18)) {
-          if ((k == ' ') || (k >= '0') && (k <= 'z') &&
-                                ((k < ';') || (k > '@')) &&
-                                ((k < '[') || (k >= 'a'))) {
+          // PORT: nawiasy grupujace && (clang -Wlogical-op-parentheses);
+          // && wiaze mocniej, semantyka bez zmian
+          if ((k == ' ') || ((k >= '0') && (k <= 'z') &&
+                             ((k < ';') || (k > '@')) &&
+                             ((k < '[') || (k >= 'a')))) {
             for (a = ll + 1; a > cx; a--)
               txt[a] = txt[a - 1];
             txt[cx] = k;
@@ -943,7 +945,7 @@ void SetExtendedPalette() {
           mode programs - more straightforward   */
 
   short int i;
-  char *p; // far
+  // PORT: usuniete nieuzywane "char *p; // far" (clang -Wunused-variable)
 
   // PORT: char w g++ jest ze znakiem - wartosci 128..255 (0xFF>>2=-1) dawaly
   // 0xFF zamiast 0x3F w DAC; rzutujemy na unsigned char, jak w oryginale

@@ -117,7 +117,7 @@ int POL_GetScale(void) { return scale; }
 static SDL_Cursor *hidden_cursor = NULL;
 static void hide_system_cursor(void) {
   // 16x16, 1bpp MSB (2 bajty na wiersz); data=0 mask=0 -> piksel przezroczysty
-  static const unsigned char blank[2 * 16];
+  static const unsigned char blank[2 * 16] = {0};
   SDL_HideCursor();
   if (!hidden_cursor) {
     hidden_cursor = SDL_CreateCursor(blank, blank, 16, 16, 0, 0);
