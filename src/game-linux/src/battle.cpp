@@ -466,6 +466,32 @@ void Battle(int type) // 1-single start   0-rs   2-loaded
     ShowSelected();
     LoadExtendedPalette(3);
     RisePalette(1);
+    // PORT: stale kolorow bitwy wg pal3 (LoadExtendedPalette(3) wyzej).
+    // InitPicture probkuje RealVirtualScreen[0..47] = wiersz 0 ekranu 3, czyli
+    // DREWO panelu (LightGreen=95=(107,70,20) w pal3 -> brazowe paski hp).
+    // Oryginalny pas wzorcowy palety byl na ekranie intro (DATA/S00*.DAT),
+    // ktorego nie ma w instalacjach dyskietkowej ani CD - probkowanie nie ma
+    // zrodla. Indeksy ponizej zweryfikowane w PAL.DAT (paleta 3, wartosci
+    // 0-255, DAC przez >>2): triplety (R,G,B).
+    LightGreen = 78;   // (14,104,0)   zielen zywych - pasek hp
+    Green = 67;        // (4,85,0)
+    DarkGreen = 65;    // (0,73,0)
+    LightYellow = 194; // (255,196,50)
+    Yellow = 189;      // (237,167,11) hp < maxhp/2
+    DarkYellow = 164;  // (206,114,8)  kropki jedzenia (ShowPanel)
+    LightRed = 137;    // (255,19,19)  hp < maxhp/4 + znacznik maxmilk
+    Red = 133;         // (230,0,0)
+    DarkRed = 128;     // (138,52,5)
+    LightBlue = 225;   // (0,162,255)  pasek magii
+    Blue = 217;        // (12,98,184)
+    DarkBlue = 213;    // (6,47,142)
+    Color1 = 38;       // (112,0,0) kolor gracza - wartosc z init portu
+    LightBrown = 111;  // (125,86,53)
+    Brown = 95;        // (107,70,20)
+    DarkBrown = 45;    // (83,58,9)   puste kropki jedzenia
+    LightGray = 233;   // (181,185,176)
+    Gray = 125;        // (109,110,109)
+    DarkGray = 118;    // (79,79,79)
     /////
     mem.faza = 0;
     mouseMode = 0;
