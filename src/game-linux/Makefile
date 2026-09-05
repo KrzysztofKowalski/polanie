@@ -5,9 +5,11 @@
 # Skala: ./pol2 [n]  (1 px gry = n x n fizycznych px; bez n = auto/fullscreen)
 
 # PORT: toolchain clang + C++23 + wlaczone warningi (cel: zero warningow).
+# PORT: CXX = clang++ (twardo, nie ?=) - GNU make ma wbudowana zmienna CXX=g++
+# (origin "default"), ktora wygrywa z ?= (to nadpisuje tylko niezdefiniowane).
 # Build pod GCC nadal mozliwy, np.:
 #   make CXX=g++ CXXFLAGS='-std=c++17 -O1 -g -w -fpermissive -funsigned-char'
-CXX      ?= clang++
+CXX      = clang++
 # PORT: Watcom mial plain char bez znaku - znaczniki placeN 190-227 (naprawa
 # 220-227, drzewa 200, palisada/most >225) musza byc > 127, inaczej logika
 # naprawy/budowy jest martwa (220 czytane jako -36) => -funsigned-char MUSI zostac

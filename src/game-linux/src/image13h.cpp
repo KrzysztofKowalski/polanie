@@ -656,7 +656,8 @@ void ClearText13h() {
 //--------------------------------------------------------
 //             OutTextDelay13h                wypisywanie liter
 //-------------------------------------------------------
-void OutTextDelay13h(int x, int y, char *text, int colour1, int colour2,
+// PORT: const char* - funkcja tylko czyta tekst (literaly sa const w C++23)
+void OutTextDelay13h(int x, int y, const char *text, int colour1, int colour2,
                      int del) {
   char *letter;
   unsigned char znak;
@@ -680,15 +681,28 @@ void OutTextDelay13h(int x, int y, char *text, int colour1, int colour2,
 //--------------------------------------------------------
 //             CenterText13h                wypisywanie liter
 //-------------------------------------------------------
-void CenterText13h(int xl, int yg, int xp, int yd, char *text, int colour) {
+// PORT: const char* - wywolania z literalami (mapa.cpp, battle.cpp); obcinanie
+// (*text = NULL w oryginale) robi na kopii lokalnej, bo literala nie wolno
+// modyfikowac. Cialo funkcji bez zmian (text wskazuje kopie).
+void CenterText13h(int xl, int yg, int xp, int yd, const char *text_in,
+                   int colour) {
+  char bufor[256];
+  char *text = bufor;
   int x, y, dl = 0, wsk;
   int i, ile = 0;
 
+  {
+    size_t n = strlen(text_in);
+    if (n > sizeof(bufor) - 1)
+      n = sizeof(bufor) - 1;
+    memcpy(bufor, text_in, n);
+    bufor[n] = 0;
+  }
   wsk = strlen(text);
   while (*text != NULL) {
     ile = ile + length[*text - 32] - 1;
     if (ile > (xp - xl - 12))
-      *text = NULL;
+      *text = 0; // PORT: bylo NULL (przypisanie do char - koniec napisu)
     text++;
   }
   for (i = 0; i < wsk; i++)
@@ -715,7 +729,8 @@ void CenterText13h(int xl, int yg, int xp, int yd, char *text, int colour) {
 //--------------------------------------------------------
 //             OutText13h                wypisywanie liter
 //-------------------------------------------------------
-void OutText13h(int x, int y, char *text, int colour) {
+// PORT: const char* - funkcja tylko czyta tekst (wywolania z literalami)
+void OutText13h(int x, int y, const char *text, int colour) {
   char *letter;
   char znak;
 
@@ -731,8 +746,10 @@ void OutText13h(int x, int y, char *text, int colour) {
 //             Write13h                wypisywanie liter
 //-------------------------------------------------------
 
-Write13h(int x, int y, int maxx, int maxdl, char *txt, int tcolour,
-         int bcolour) {
+// PORT: int Write13h - brak typu zwracanego (implicit int zniesiony w C++23;
+// deklaracja w image13h.h ma int)
+int Write13h(int x, int y, int maxx, int maxdl, char *txt, int tcolour,
+             int bcolour) {
   // PORT: ekran edycji tekstu (jedyne pole wpisywania w grze) - WASD musi
   // dochodzic jako litery ASCII, nie jako kody strzalek (mapowanie WASD ->
   // strzalki w port_sdl.cpp; decyzja usera 2026-09-04). Tryb gaszony przy
@@ -745,7 +762,7 @@ Write13h(int x, int y, int maxx, int maxdl, char *txt, int tcolour,
   while (*txt != NULL) {
     ile = ile + length[*txt - 32] - 1;
     if (ile > maxx - 12)
-      *txt = NULL;
+      *txt = 0; // PORT: bylo NULL (przypisanie do char - koniec napisu)
     txt++;
   }
   for (int i = 0; i < wsk; i++)
