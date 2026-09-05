@@ -221,6 +221,7 @@ extern int Who(int);
 extern void FindEnemy(int x, int y, int *xe, int *ye, int *distance);
 extern Mover1 *Pointer(int nr);
 extern int Udata[13][7];
+extern int dmagic[15]; // PORT: maksimum many wg doswiadczenia (mover1.cpp)
 // world
 extern int InitPlace(int level);
 extern void ShowPlace(int, int);
@@ -266,6 +267,8 @@ int licznik2 = 0;
 // wierzchu paska (w CD okno rowniez nachodzilo na pasek mleka).
 static char polFaceBuf[16 * (32 * 21 + 6)];   // 16 kafli 32x21 (portret/budynek)
 static char polGniazdoTlo[6 + 18 * 16];       // tlo gniazda 0 (274,18)-(291,33)
+static char polPasekTloL[6 + 3 * 21];         // tlo pod lewym paskiem (274,7)-(276,27)
+static char polPasekTloP[6 + 3 * 21];         // tlo pod prawym paskiem (311,7)-(313,27)
 
 // PORT: wycina face[] z arkuszy 4 i 5; wolac po SetScreen(1), przed
 // ShowBackground() (ktory i tak odtwarza ekran 3 w tle panelu)
@@ -281,6 +284,30 @@ static void InitSelectionPreview(void) {
   ShowPicture(20, 100);
   for (i = 0; i < 6; i++) // obrazki budynkow (typ 1-6 -> face[10..15])
     GetImage13h(i * 32, 168, i * 32 + 32, 189, face[10 + i]);
+}
+
+// PORT: pionowy pasek 3x21 przy okienku podgladu (x,y = lewy gorny rog);
+// czarny tor, wypelnienie od dolu. Kolory jak przy paskach na mapie
+// (mover1.cpp:2259-2272): zdrowie LightGreen/Yellow/LightRed, magia LightBlue.
+static void PolPasekPanel(int x, int y, int wart, int maks, int kolor) {
+  int h;
+  Bar13h(x, y, x + 2, y + 20, Black);
+  if (maks > 0 && wart > 0) {
+    h = wart * 21 / maks;
+    if (h > 21)
+      h = 21;
+    Bar13h(x, y + 21 - h, x + 2, y + 20, kolor);
+  }
+}
+
+// PORT: kolor paska zdrowia jak na mapie (mover1.cpp:2259-2263)
+static int PolKolorHp(int hp, int maxhp) {
+  int kolor = LightGreen;
+  if (hp < (maxhp >> 1))
+    kolor = Yellow;
+  if (hp < (maxhp >> 2))
+    kolor = LightRed;
+  return kolor;
 }
 
 // PORT: rysuje podglad zaznaczonego obiektu w okienku panelu; wolac co klatke
@@ -306,6 +333,11 @@ static void ShowSelectionPreview(void) {
     // PORT: nic nie zaznaczone - odtworz tlo okienka (drewno[1], jak w
     // edytorze) i ramke gniazda 0: panel wraca do widoku dyskietkowego
     // (kasuje tez resztki poprzedniego podgladu w calym okienku 32x21)
+    // PORT: najpierw tla pod paskami (kasuja resztki paskow z poprzedniej
+    // klatki), PRZED ramka gniazda 0 - ramka jest nieprzezroczysta i nachodzi
+    // na lewy pasek, w przeciwnym razie zostalaby w niej dziura po tle
+    PutImage13h(274, 7, polPasekTloL, 0);
+    PutImage13h(311, 7, polPasekTloP, 0);
     PutImage13h(278, 7, drewno[1], 0);
     PutImage13h(274, 18, Buttons[3], 0);
     return;
@@ -325,6 +357,24 @@ static void ShowSelectionPreview(void) {
     else // wrogi: ubranie z koloru gracza (color1) na kolor wroga (color2),
          // jak portret w edytorze (graphic1.cpp:1005)
       PutImageChange13h(278, 7, face[idx], 0, color1, color2);
+  }
+  // PORT: paski przy okienku podgladu - lewy: zdrowie, prawy: magia (tylko
+  // jednostki z magic > 0: kaplanka/kaplan/mag); dla budynku oba paski to
+  // zdrowie (jak w wersji CD). Na koncu, zeby lezaly na wierzchu tla gniazda
+  // 0 wymienianego wyzej przy zaznaczeniu
+  if (tw == 2) {
+    PolPasekPanel(274, 7, selectB->hp, selectB->maxhp,
+                  PolKolorHp(selectB->hp, selectB->maxhp));
+    PolPasekPanel(311, 7, selectB->hp, selectB->maxhp,
+                  PolKolorHp(selectB->hp, selectB->maxhp));
+  } else {
+    PolPasekPanel(274, 7, selectM->hp, selectM->maxhp,
+                  PolKolorHp(selectM->hp, selectM->maxhp));
+    if (selectM->magic)
+      PolPasekPanel(311, 7, selectM->magic, dmagic[selectM->exp >> 4],
+                    LightBlue);
+    else
+      PolPasekPanel(311, 7, 0, 0, 0);
   }
 }
 //==============================================================================
@@ -364,6 +414,10 @@ void Battle(int type) // 1-single start   0-rs   2-loaded
     InitSelectionPreview(); // PORT: podglad zaznaczenia - wyciecie face[] (ekrany 4 i 5)
     ShowBackground();
     GetImage13h(274, 18, 292, 34, polGniazdoTlo); // PORT: tlo gniazda 0 z tla panelu (do wymazania tarczy "Stoj" przy podgladzie)
+    // PORT: tla pod paskami przy okienku podgladu - z tla panelu (przed
+    // ShowPanel i przed co-klatkowym rysowaniem paska mleka)
+    GetImage13h(274, 7, 276, 27, polPasekTloL);
+    GetImage13h(311, 7, 313, 27, polPasekTloP);
     ShowPanel(0, 0, 0, 0, 0);
     if (Map)
       PressButton(16, 2);
@@ -793,18 +847,25 @@ void ShowSelected() {
 
     ///////////// wypisz mleko /////////////////////////////////
     PutImage13h(299, 9, drewno[2], 0); //???
-    i = castle[master].milk;
-    if (i > 1410)
-      i = 1410;
-    i = i / 10;
-    if (i)
-      Bar13h(299, 150 - i, 314, 150, 255);
-    i = castle[master].maxmilk;
-    if (i > 1260)
-      i = 0;
-    i = i / 10;
-    if (i)
-      Bar13h(299, 150 - i, 314, 151 - i, LightRed);
+    // PORT: fix "pasek poza limitem" - bialy pasek clamped tez do maxmilk
+    // (przyrost jednego ticka mogl przeskoczyc maksimum), a czerwony znacznik
+    // maksimum rysowany ZAWSZE przy maxmilk > 0 (w oryginale chowany przy
+    // maxmilk > 1260, wiec przy duzych maksimach pasek wygladal jak bez limitu)
+    int pol_milk = castle[master].milk;
+    if (pol_milk > 1410)
+      pol_milk = 1410;
+    int pol_max = castle[master].maxmilk; // 0 = bez limitu (bez znacznika)
+    if (pol_max > 0 && pol_milk > pol_max)
+      pol_milk = pol_max;
+    pol_milk /= 10;
+    if (pol_milk)
+      Bar13h(299, 150 - pol_milk, 314, 150, 255);
+    int pol_maxm = pol_max;
+    if (pol_maxm > 1410)
+      pol_maxm = 1410; // znacznik przyciety do szczytu paska
+    pol_maxm /= 10;
+    if (pol_maxm)
+      Bar13h(299, 150 - pol_maxm, 314, 151 - pol_maxm, LightRed);
 
     // PORT: podglad zaznaczonego obiektu w okienku panelu (feature wersji CD);
     // po pasku mleka, bo jego ramka drewno[2] (299,9) przykrywa prawy skraj
