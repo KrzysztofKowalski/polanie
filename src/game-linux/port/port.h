@@ -73,6 +73,23 @@ int POL_ClickPeek(int button);  // PORT: podglad licznika bez konsumpcji
 void POL_Delay(int ms);
 unsigned long POL_GetTicks(void);
 
+// PORT: portalny sen dla petli gry czekajacych na tik zegara 18.2 Hz
+// (spin-petla bitwy, src/battle.cpp: licznik - licznik2 < speed). Zamiast
+// krezenia (busy-wait na odczycie licznika; pod WASM spin zamrozi strone,
+// natywnie zjada rdzen) petla usypia sie na krotko i wraca do odpytywania
+// wejscia - input (mysz/klawisz) jest dalej pollowany co obieg petli, a
+// tempo logiki taktuje wylacznie licznik z pol_tick_cb (src/menegdma.cpp),
+// wiec sen niczego nie doryfuje: wyjscie z czekania jest i tak warunkiem
+// na liczniku, czyli nastepuje na granicy tika, nie "54 ms od teraz".
+// NATYWNIE: SDL_Delay (planista usypia watek, rdzen wroca do systemu).
+// EMSCRIPTEN/WASM: SDL_Delay przechodzi na emscripten_sleep(ms), ktore
+// oddaje kontrole petli zdarzen przegladarki - strona nie zamarza; wymaga
+// budowy z ASYNCIFY (jednowatkowy main loop). To jest JEDYNE miejsce do
+// podmiany dla builda webowego: kod gry wola wylacznie POL_WaitMs (gdyby
+// kiedys SDL_Delay przestawal wystarczac, tu wchodzi wprost
+// emscripten_sleep - bez zmian w plikach src/).
+void POL_WaitMs(int ms);
+
 // ---------- pliki ----------
 // PORT: czysta normalizacja sciezki DOS -> Linux (zrzut napedu "X:",
 // backslash -> slash, zdejmowanie wiodacych "./"). Bez dostepu do dysku -
@@ -88,8 +105,8 @@ const char *POL_ExtractedDir(void);
 // PORT: rozwiazanie sciezki DOS do realnego pliku po stemie nazwy (bez
 // rozszerzenia): katalog danych ("data\\W001.dat" -> DATA/W001.DAT), potem
 // ekstrakt (extracted/audio/dzwieki/W001.wav), potem dane pelnej wersji CD
-// (cd/polanie_cd - instalator scripts/install.sh --cd). Zwraca statyczny
-// bufor albo NULL. Tor efektow (port_audio.cpp) i testy jednostkowe.
+// z lokalnego archiwum jprok_pliki. Zwraca statyczny bufor albo NULL.
+// Tor efektow (port_audio.cpp) i testy jednostkowe.
 const char *POL_ResolveDataFile(const char *dos);
 
 // ---------- symulacja: leczenie rannych (src/unit_heal.cpp) ----------
