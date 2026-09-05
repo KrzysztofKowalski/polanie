@@ -695,6 +695,14 @@ int POL_ClickPeek(int button) {
 // ------------------------------------------------------------------ czas ---
 void POL_Delay(int ms) { SDL_Delay(ms); }
 
+// PORT: portalny sen (seam pod Emscripten) - pelny opis w port.h. Kod gry
+// (petla bitwy czekajaca na tik 18.2 Hz) wola wylacznie te funkcje:
+// natywnie to SDL_Delay (uśpienie watku), pod WASM (budowa z ASYNCIFY)
+// SDL_Delay -> emscripten_sleep i kontrola wraca do przegladarki, wiec
+// czekanie na tik nie zamraza strony. Wywolanie z krotkim ms (1-5) daje
+// petli rytm "odpytaj wejscie - zasnij na chwile" zamiast busy-waita.
+void POL_WaitMs(int ms) { POL_Delay(ms); }
+
 unsigned long POL_GetTicks(void) { return (unsigned long)SDL_GetTicks(); }
 
 // ----------------------------------------------------------------- audio ---
