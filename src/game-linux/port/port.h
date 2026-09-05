@@ -74,7 +74,8 @@ void POL_Delay(int ms);
 unsigned long POL_GetTicks(void);
 
 // PORT: portalny sen dla petli gry czekajacych na tik zegara 18.2 Hz
-// (spin-petla bitwy, src/battle.cpp: licznik - licznik2 < speed). Zamiast
+// (spin-petla bitwy, src/battle.cpp: licznik - licznik2 < speedTicks,
+// speedTicks = speed ? speed : 1). Zamiast
 // krezenia (busy-wait na odczycie licznika; pod WASM spin zamrozi strone,
 // natywnie zjada rdzen) petla usypia sie na krotko i wraca do odpytywania
 // wejscia - input (mysz/klawisz) jest dalej pollowany co obieg petli, a
