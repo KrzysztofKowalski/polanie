@@ -178,7 +178,7 @@ char *guzik[3], *lancuch[2];
 
 extern int quit = 0;
 extern int level;
-extern int licznik;
+extern volatile int licznik; // PORT: volatile - pisany z callbacku zegara
 extern char *picture[MaxPictures], *missiles[6][3][3], *tlo, *Mysz[13];
 extern char *movers[5][10][3][3], *ramka[4]; // faza:typ:dx:dy
 extern char *buttons[16];
@@ -498,133 +498,157 @@ void Battle(int type) // 1-single start   0-rs   2-loaded
     Msg.ddzwiek = 0;
     do {
       do {
-        decisionFaza++;
-        if (decisionFaza == 6) {
-          switch (pl.decisionType) {
-          case 0:
-            Decision();
-            break;
-          case 1:
-            DecisionB();
-            break;
-          case 2:
-            DecisionS();
-            break;
-          }
-          if (pl.gen)
-            Generator();
-          decisionFaza = 0;
-          CheckCD();
-        }
-        if (grupa == 1 && Cmd[0].co == 1)
-          Cmd[0].co = 3;
-        castle[0].SetCmd(&Cmd[0]);
-        castle[1].SetCmd(&Cmd[1]);
-
-        castle[0].Run();
-        castle[1].Run();
-        POL_UnitHealTick(); // PORT: leczenie rannych (petla glowna symulacji)
-        castle[0].Prepare(ScreenX, ScreenY, 1);
-        castle[1].Prepare(ScreenX, ScreenY, 1);
-
-        // clear commmand
-        Cmd[1].co = 5;
-        Cmd[0].co = 5;
-        ClearAttack();
-        if (pl.endType == 1 && placeN[pl.x0][pl.y0] && pl.x0) {
-          castle[0].m[1].Init(pl.typ, pl.x0, pl.y0, 0, 0);
-          castle[0].m[1].SetIFF(1);
-          castle[0].m[1].SetNr(1 + 456);
-          castle[0].m[1].Show();
-          pl.x0 = 0;
-          placeN[pl.x0][pl.y0] = 1;
-        }
-        if (placeG[pl.xp][pl.yp] == 300 && place[pl.xp][pl.yp] > 256 &&
-            place[pl.xp][pl.yp] < 768) // przemiana
-        {
-          Mover1 *mm = Pointer(place[pl.xp][pl.yp]);
-          if (mm != NULL) {
-            mm->type = 8;
-            mm->s_range = Udata[8][0];
-            mm->a_range = Udata[8][1];
-            mm->damage = Udata[8][2];
-            mm->armour = Udata[8][3];
-            mm->maxhp = Udata[8][4];
-            mm->maxdelay = Udata[8][5];
-            mm->magic = 0;
-            if (mm->hp > mm->maxhp)
-              mm->hp = mm->maxhp;
-          }
-        }
-        if (mouseP > 3)
-          mouseP = 0;
-        else
-          mouseP++;
-        if (Msg.count == 6)
-          Msg.count = 0;
-        if (Msg.count)
-          Msg.count--;
-
-        if (mouseCounter > 0)
-          mouseCounter--;
-        if (mouseCounter == 1 ||
-            (!mouseCounter && mouseCommand == 1)) // wypisz panel
-          if (select.IFF < 1) {
-            int comm = 0;
-            if (select.co == 1) {
-              int comm = 0;
-              if (selectM->type && selectM->command == 5)
-                comm = 1;
-              if (selectM->type == 1 && selectM->command == 8)
-                comm = 3;
-              if ((selectM->type == 3 || selectM->type == 4) &&
-                  selectM->command == 7)
-                comm = 3;
-              ShowPanel(select.IFF, selectM->type, 1, selectM->magic, comm);
+        // PORT: full speed (skrajny prawy suwaka, speed==0) w oryginale
+        // Watcom nie czekal wcale - warunek "licznik - licznik2 < 0" byl
+        // zawsze falszywy, wiec kroki symulacji szly z predkoscia CPU
+        // (kilkadziesiat-kilkaset razy za szybko na nowych maszynach,
+        // busy-loop dlawil rdzen). Teraz skrajny prawy czeka jak przy 1
+        // (speedTicks w warunku petli czekania nizej) i robi 2 kroki
+        // symulacji na tick zegara (36 kroki/s = 2x tempo nominalne);
+        // pozycje 1-5 bez zmian.
+        int ileKrokow = speed ? 1 : 2;      // PORT: full speed = 2 kroki/tick
+        int speedTicks = speed ? speed : 1; // PORT: full speed czeka jak 1
+        for (int nrKroku = 0; nrKroku < ileKrokow; nrKroku++) {
+          decisionFaza++;
+          if (decisionFaza == 6) {
+            switch (pl.decisionType) {
+            case 0:
+              Decision();
+              break;
+            case 1:
+              DecisionB();
+              break;
+            case 2:
+              DecisionS();
+              break;
             }
-            if (select.co == 0) {
-              if (selectB->exist == 1)
-                comm = castle[0].milk;
-              ShowPanel(select.IFF, selectB->type + 19, comm,
-                        selectB->maxfood - selectB->food, 0);
-            }
-          } else {
-            ShowPanel(0, 0, 0, 0, 0);
+            if (pl.gen)
+              Generator();
+            decisionFaza = 0;
+            CheckCD();
           }
+          if (grupa == 1 && Cmd[0].co == 1)
+            Cmd[0].co = 3;
+          castle[0].SetCmd(&Cmd[0]);
+          castle[1].SetCmd(&Cmd[1]);
 
-        ////////////////////////////////////////////////////////////////
-        if (Msg.dzwiek) {
-          if (Msg.dzwiek < 0)
-            Msg.dzwiek = 0;
-          if (!SND.jest_odtwarzany) // 1996.06.29
+          castle[0].Run();
+          castle[1].Run();
+          POL_UnitHealTick(); // PORT: leczenie rannych (petla glowna symulacji)
+          castle[0].Prepare(ScreenX, ScreenY, 1);
+          castle[1].Prepare(ScreenX, ScreenY, 1);
+
+          // clear commmand
+          Cmd[1].co = 5;
+          Cmd[0].co = 5;
+          ClearAttack();
+          if (pl.endType == 1 && placeN[pl.x0][pl.y0] && pl.x0) {
+            castle[0].m[1].Init(pl.typ, pl.x0, pl.y0, 0, 0);
+            castle[0].m[1].SetIFF(1);
+            castle[0].m[1].SetNr(1 + 456);
+            castle[0].m[1].Show();
+            pl.x0 = 0;
+            placeN[pl.x0][pl.y0] = 1;
+          }
+          if (placeG[pl.xp][pl.yp] == 300 && place[pl.xp][pl.yp] > 256 &&
+              place[pl.xp][pl.yp] < 768) // przemiana
           {
-            // PORT: diagnostyka glosow - Msg.dzwiek dotarlo do bramki SND
-            if (POL_BattleDbg())
-              fprintf(stderr, "PORT: BATTLE: bramka SND: dzwiek=%d X=%d Y=%d "
-                              "(ScreenX=%d ScreenY=%d)\n",
-                      (int)Msg.dzwiek, (int)Msg.X, (int)Msg.Y, ScreenX, ScreenY);
-            if (Msg.X < ScreenX + 22 && Msg.Y < ScreenY + 18 &&
-                Msg.X > ScreenX - 5 && Msg.Y > ScreenY - 4)
-              if (dzwiek && Msg.dzwiek < 26)
-                SND(Msg.dzwiek - 1);
-            if (mowa && Msg.dzwiek > 25)
-              SND(Msg.dzwiek - 1);
-            Msg.dzwiek = 0;
-            Msg.ddzwiek++;
-            if (Msg.ddzwiek > 2)
-              Msg.ddzwiek = 0;
-          }
-          // PORT: gdy bramka zamknieta (glos jeszcze gra) - raz na czas
-          // utkwiencia, zeby zobaczyc cisze z gating'u a nie spam
-          else if (POL_BattleDbg()) {
-            static int zalogowane = 0;
-            if (!zalogowane) {
-              zalogowane = 1;
-              fprintf(stderr, "PORT: BATTLE: bramka SND zamknieta "
-                              "(jest_odtwarzany=1), dzwiek=%d czeka\n",
-                      (int)Msg.dzwiek);
+            Mover1 *mm = Pointer(place[pl.xp][pl.yp]);
+            if (mm != NULL) {
+              mm->type = 8;
+              mm->s_range = Udata[8][0];
+              mm->a_range = Udata[8][1];
+              mm->damage = Udata[8][2];
+              mm->armour = Udata[8][3];
+              mm->maxhp = Udata[8][4];
+              mm->maxdelay = Udata[8][5];
+              mm->magic = 0;
+              if (mm->hp > mm->maxhp)
+                mm->hp = mm->maxhp;
             }
           }
+          if (mouseP > 3)
+            mouseP = 0;
+          else
+            mouseP++;
+          if (Msg.count == 6)
+            Msg.count = 0;
+          if (Msg.count)
+            Msg.count--;
+
+          if (mouseCounter > 0)
+            mouseCounter--;
+          if (mouseCounter == 1 ||
+              (!mouseCounter && mouseCommand == 1)) // wypisz panel
+            if (select.IFF < 1) {
+              int comm = 0;
+              if (select.co == 1) {
+                int comm = 0;
+                if (selectM->type && selectM->command == 5)
+                  comm = 1;
+                if (selectM->type == 1 && selectM->command == 8)
+                  comm = 3;
+                if ((selectM->type == 3 || selectM->type == 4) &&
+                    selectM->command == 7)
+                  comm = 3;
+                ShowPanel(select.IFF, selectM->type, 1, selectM->magic, comm);
+              }
+              if (select.co == 0) {
+                if (selectB->exist == 1)
+                  comm = castle[0].milk;
+                ShowPanel(select.IFF, selectB->type + 19, comm,
+                          selectB->maxfood - selectB->food, 0);
+              }
+            } else {
+              ShowPanel(0, 0, 0, 0, 0);
+            }
+
+          ////////////////////////////////////////////////////////////////
+          if (Msg.dzwiek) {
+            if (Msg.dzwiek < 0)
+              Msg.dzwiek = 0;
+            if (!SND.jest_odtwarzany) // 1996.06.29
+            {
+              // PORT: diagnostyka glosow - Msg.dzwiek dotarlo do bramki SND
+              if (POL_BattleDbg())
+                fprintf(stderr,
+                        "PORT: BATTLE: bramka SND: dzwiek=%d X=%d Y=%d "
+                        "(ScreenX=%d ScreenY=%d)\n",
+                        (int)Msg.dzwiek, (int)Msg.X, (int)Msg.Y, ScreenX,
+                        ScreenY);
+              if (Msg.X < ScreenX + 22 && Msg.Y < ScreenY + 18 &&
+                  Msg.X > ScreenX - 5 && Msg.Y > ScreenY - 4)
+                if (dzwiek && Msg.dzwiek < 26)
+                  SND(Msg.dzwiek - 1);
+              if (mowa && Msg.dzwiek > 25)
+                SND(Msg.dzwiek - 1);
+              Msg.dzwiek = 0;
+              Msg.ddzwiek++;
+              if (Msg.ddzwiek > 2)
+                Msg.ddzwiek = 0;
+            }
+            // PORT: gdy bramka zamknieta (glos jeszcze gra) - raz na czas
+            // utkwiencia, zeby zobaczyc cisze z gating'u a nie spam
+            else if (POL_BattleDbg()) {
+              static int zalogowane = 0;
+              if (!zalogowane) {
+                zalogowane = 1;
+                fprintf(stderr, "PORT: BATTLE: bramka SND zamknieta "
+                                "(jest_odtwarzany=1), dzwiek=%d czeka\n",
+                        (int)Msg.dzwiek);
+              }
+            }
+          }
+          // PORT: dekrementacje i EndLevel przeniesione do kroku symulacji
+          // (w oryginale na koncu obiegu petli gry, za czekaniem) - przy
+          // pozycjach 1-5 czestotliwosc bez zmian (1 krok/tick), przy full
+          // speed ida z krokiem (2x na tick), jak w oryginale DOS.
+          if (pl.ide)
+            pl.ide--;
+          if (Msg.licznik)
+            Msg.licznik--;
+          if (decisionFaza == 2 && !quitLevel)
+            endL = EndLevel();
         }
         ////////////////////////////////////////////////////////////////
 
@@ -663,11 +687,16 @@ void Battle(int type) // 1-single start   0-rs   2-loaded
           // pollowany co obieg pętli (klik dożywa w liczniku, lepki bit
           // portowy ma 200 ms), a wyjście z czekania jest i tak warunkiem
           // na liczniku taktowanym pol_tick_cb (src/menegdma.cpp) - sen
-          // nie doryfuje, tempo logiki zostaje 18.2 Hz.
-          if (licznik - licznik2 < speed)
+          // nie doryfuje, tempo logiki zostaje 18.2 Hz. Warunek czeka na
+          // speedTicks = speed ? speed : 1 (policzone raz na tick, nad
+          // pętlą for): full speed (skraj prawy, speed==0) w Watcom czekał
+          // na warunek "nigdy nieprawdziwy" (< 0), czyli nie czekał wcale;
+          // teraz czeka jak przy 1, a krok symulacji robi się dwa razy
+          // (pętla for wyżej) - patrz komentarz przy pętli for.
+          if (licznik - licznik2 < speedTicks)
             POL_WaitMs(2);
 
-        } while (licznik - licznik2 < speed);
+        } while (licznik - licznik2 < speedTicks);
         showAll = 1;
         //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
         if (licznik > 10000) {
@@ -724,12 +753,8 @@ void Battle(int type) // 1-single start   0-rs   2-loaded
           }
         }
 
-        if (pl.ide)
-          pl.ide--;
-        if (Msg.licznik)
-          Msg.licznik--;
-        if (decisionFaza == 2 && !quitLevel)
-          endL = EndLevel();
+        // PORT: dekrementacje pl.ide/Msg.licznik i EndLevel przeniesione
+        // do kroku symulacji (do petli for nad czekaniem) - patrz tam.
       } while (!quitLevel && !endL);
 
     } while (!quitLevel && !endL);
@@ -1292,7 +1317,13 @@ void ShowSelected() {
 //
 ////////////////////////////////////////////////////////////////////////
 void Scroll() {
-  if (scrollTimer + (5 - skroller) > licznik)
+  // PORT: skroller=5 - przewijanie co tick zegara, nie co obieg petli
+  // (warunek "5 - skroller == 0" przepuszczal przy kazdym obiegu petli,
+  // czyli tempo przewijania zalezne od CPU); minimum 1 tick.
+  int scrollTicks = 5 - skroller;
+  if (scrollTicks < 1)
+    scrollTicks = 1;
+  if (scrollTimer + scrollTicks > licznik)
     return;
 
   scrollTimer = licznik;
