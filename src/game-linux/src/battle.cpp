@@ -267,8 +267,6 @@ int licznik2 = 0;
 // wierzchu paska (w CD okno rowniez nachodzilo na pasek mleka).
 static char polFaceBuf[16 * (32 * 21 + 6)];   // 16 kafli 32x21 (portret/budynek)
 static char polGniazdoTlo[6 + 18 * 16];       // tlo gniazda 0 (274,18)-(291,33)
-static char polPasekTloL[6 + 3 * 21];         // tlo pod lewym paskiem (274,7)-(276,27)
-static char polPasekTloP[6 + 3 * 21];         // tlo pod prawym paskiem (311,7)-(313,27)
 
 // PORT: wycina face[] z arkuszy 4 i 5; wolac po SetScreen(1), przed
 // ShowBackground() (ktory i tak odtwarza ekran 3 w tle panelu)
@@ -286,8 +284,8 @@ static void InitSelectionPreview(void) {
     GetImage13h(i * 32, 168, i * 32 + 32, 189, face[10 + i]);
 }
 
-// PORT: pionowy pasek 3x21 przy okienku podgladu (x,y = lewy gorny rog);
-// czarny tor, wypelnienie od dolu. Kolory jak przy paskach na mapie
+// PORT: pionowy pasek 3x21 na krawedzi okienka podgladu (x,y = lewy gorny rog;
+// lewy pasek x=278, prawy x=307); czarny tor, wypelnienie od dolu. Kolory jak przy paskach na mapie
 // (mover1.cpp:2259-2272): zdrowie LightGreen/Yellow/LightRed, magia LightBlue.
 static void PolPasekPanel(int x, int y, int wart, int maks, int kolor) {
   int h;
@@ -332,12 +330,6 @@ static void ShowSelectionPreview(void) {
   if (!tw) {
     // PORT: nic nie zaznaczone - odtworz tlo okienka (drewno[1], jak w
     // edytorze) i ramke gniazda 0: panel wraca do widoku dyskietkowego
-    // (kasuje tez resztki poprzedniego podgladu w calym okienku 32x21)
-    // PORT: najpierw tla pod paskami (kasuja resztki paskow z poprzedniej
-    // klatki), PRZED ramka gniazda 0 - ramka jest nieprzezroczysta i nachodzi
-    // na lewy pasek, w przeciwnym razie zostalaby w niej dziura po tle
-    PutImage13h(274, 7, polPasekTloL, 0);
-    PutImage13h(311, 7, polPasekTloP, 0);
     PutImage13h(278, 7, drewno[1], 0);
     PutImage13h(274, 18, Buttons[3], 0);
     return;
@@ -358,23 +350,24 @@ static void ShowSelectionPreview(void) {
          // jak portret w edytorze (graphic1.cpp:1005)
       PutImageChange13h(278, 7, face[idx], 0, color1, color2);
   }
-  // PORT: paski przy okienku podgladu - lewy: zdrowie, prawy: magia (tylko
-  // jednostki z magic > 0: kaplanka/kaplan/mag); dla budynku oba paski to
-  // zdrowie (jak w wersji CD). Na koncu, zeby lezaly na wierzchu tla gniazda
-  // 0 wymienianego wyzej przy zaznaczeniu
+  // PORT: paski WEWNATRZ okienka podgladu (278,7)-(309,27), na jego
+  // krawedziach, rysowane po portrecie (jak w wersji CD - zrzut usera):
+  // tlo okienka (drewno[1]) rysowane co klatke kasuje je przy zmianie
+  // zaznaczenia/odznaczeniu, wiec nie trzeba zapisywac teł pod nimi.
+  // Lewy (278-280): zdrowie. Prawy (307-309): magia, TYLKO dla jednostek
+  // z magic > 0 (kaplanka/kaplan/mag) - przy jednostce bez magii zadny pasek
+  // (czarny tor wygladal jak usterka). Dla budynku oba paski to zdrowie.
   if (tw == 2) {
-    PolPasekPanel(274, 7, selectB->hp, selectB->maxhp,
+    PolPasekPanel(278, 7, selectB->hp, selectB->maxhp,
                   PolKolorHp(selectB->hp, selectB->maxhp));
-    PolPasekPanel(311, 7, selectB->hp, selectB->maxhp,
+    PolPasekPanel(307, 7, selectB->hp, selectB->maxhp,
                   PolKolorHp(selectB->hp, selectB->maxhp));
   } else {
-    PolPasekPanel(274, 7, selectM->hp, selectM->maxhp,
+    PolPasekPanel(278, 7, selectM->hp, selectM->maxhp,
                   PolKolorHp(selectM->hp, selectM->maxhp));
     if (selectM->magic)
-      PolPasekPanel(311, 7, selectM->magic, dmagic[selectM->exp >> 4],
+      PolPasekPanel(307, 7, selectM->magic, dmagic[selectM->exp >> 4],
                     LightBlue);
-    else
-      PolPasekPanel(311, 7, 0, 0, 0);
   }
 }
 //==============================================================================
@@ -414,10 +407,6 @@ void Battle(int type) // 1-single start   0-rs   2-loaded
     InitSelectionPreview(); // PORT: podglad zaznaczenia - wyciecie face[] (ekrany 4 i 5)
     ShowBackground();
     GetImage13h(274, 18, 292, 34, polGniazdoTlo); // PORT: tlo gniazda 0 z tla panelu (do wymazania tarczy "Stoj" przy podgladzie)
-    // PORT: tla pod paskami przy okienku podgladu - z tla panelu (przed
-    // ShowPanel i przed co-klatkowym rysowaniem paska mleka)
-    GetImage13h(274, 7, 276, 27, polPasekTloL);
-    GetImage13h(311, 7, 313, 27, polPasekTloP);
     ShowPanel(0, 0, 0, 0, 0);
     if (Map)
       PressButton(16, 2);
