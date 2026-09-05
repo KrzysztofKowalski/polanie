@@ -250,6 +250,9 @@ extern void MouseEngine(void);
 extern "C" void POL_UnitHealTick(void);
 // PORT: zamkniecie okna (port.h cale w extern "C" - stad extern "C" tez tutaj)
 extern "C" int POL_QuitRequested(void);
+// PORT: portalny sen dla petli czekajacych na tik 18.2 Hz (port/port.h,
+// implementacja port/port_sdl.cpp obok POL_Delay)
+extern "C" void POL_WaitMs(int ms);
 int licznik2 = 0;
 //=========== PORT: podglad zaznaczonego obiektu (feature wersji CD) ===========
 // PORT: W wersji CD w prawym gornym rogu panelu bitwy jest wytloczone okienko
@@ -601,6 +604,17 @@ void Battle(int type) // 1-single start   0-rs   2-loaded
 #ifdef bez_zegara
           licznik++;
 #endif
+          // PORT: czekanie na tik 18.2 Hz bez kręcenia - portalny sen
+          // (POL_WaitMs, port/port_sdl.cpp). Pętla czekała na podbicie
+          // licznika busy-waitem (setki-kilka tysięcy obiegów na tick:
+          // natywnie zjadała rdzeń, pod WASM spin zamroziłby stronę).
+          // Krotki sen między odpytaniami: input (mysz/klawisz) jest dalej
+          // pollowany co obieg pętli (klik dożywa w liczniku, lepki bit
+          // portowy ma 200 ms), a wyjście z czekania jest i tak warunkiem
+          // na liczniku taktowanym pol_tick_cb (src/menegdma.cpp) - sen
+          // nie doryfuje, tempo logiki zostaje 18.2 Hz.
+          if (licznik - licznik2 < speed)
+            POL_WaitMs(2);
 
         } while (licznik - licznik2 < speed);
         showAll = 1;
