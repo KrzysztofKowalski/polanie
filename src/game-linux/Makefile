@@ -4,11 +4,14 @@
 #   make run        - buduje i uruchamia z danymi gry
 # Skala: ./pol2 [n]  (1 px gry = n x n fizycznych px; bez n = auto/fullscreen)
 
-CXX      ?= g++
+# PORT: toolchain clang + C++23 + wlaczone warningi (cel: zero warningow).
+# Build pod GCC nadal mozliwy, np.:
+#   make CXX=g++ CXXFLAGS='-std=c++17 -O1 -g -w -fpermissive -funsigned-char'
+CXX      ?= clang++
 # PORT: Watcom mial plain char bez znaku - znaczniki placeN 190-227 (naprawa
 # 220-227, drzewa 200, palisada/most >225) musza byc > 127, inaczej logika
-# naprawy/budowy jest martwa (220 czytane jako -36)
-CXXFLAGS ?= -std=c++17 -O1 -g -w -fpermissive -funsigned-char
+# naprawy/budowy jest martwa (220 czytane jako -36) => -funsigned-char MUSI zostac
+CXXFLAGS ?= -std=c++23 -O1 -g -Wall -Wextra -funsigned-char
 SDL3FLAGS := $(shell pkg-config sdl3 --cflags 2>/dev/null || echo -I/usr/include/SDL3)
 SDLLIBS  := $(shell pkg-config sdl3 --libs 2>/dev/null || echo -lSDL3)
 # PORT: muzyka S3M (port_audio.cpp) - libopenmpt; gdy brak w systemie,
@@ -191,11 +194,11 @@ GTEST_CFLAGS := $(shell pkg-config --cflags gtest 2>/dev/null)
 GTEST_LIBS := $(shell pkg-config --libs gtest 2>/dev/null || echo -lgtest)
 
 # testy bez -include polshim.h (zeby fopen w testach byl zwyklym fopenem glibc)
-# i bez -MMD; standard C++20 (gtest + filesystem)
+# i bez -MMD; standard C++23 (gtest + filesystem), spojnie z CXXFLAGS
 # PORT: -funsigned-char jak w CXXFLAGS - testy musza miec ta sama semantyke
 # char co kod gry (znaczniki placeN 190-227)
 $(BUILD)/test_%.o: $(TESTDIR)/test_%.cpp $(wildcard $(TESTDIR)/*.h)
-	$(CXX) -std=c++20 -funsigned-char -O1 -g -w $(GTEST_CFLAGS) \
+	$(CXX) -std=c++23 -funsigned-char -O1 -g -w $(GTEST_CFLAGS) \
 	       -I$(PORTDIR) -I$(TESTDIR) -I$(GAME) -I../tools -c $< -o $@
 
 # PORT: sound_dat.o w linku testow - regresje toru efektow (POL_ListFiles,
@@ -208,17 +211,53 @@ $(TESTY): $(TEST_OBJS) $(BUILD)/port_fopen.o $(BUILD)/port_shims.o \
           $(BUILD)/image13h.o $(BUILD)/cd.o $(BUILD)/sound_dat.o \
           $(BUILD)/midi_parser.o $(BUILD)/midi_map_files.o \
           $(BUILD)/mix_simd.o $(BUILD)/sfz_engine.o $(BUILD)/unit_heal.o
-	$(CXX) -std=c++20 -o $@ $^ $(GTEST_LIBS) -pthread $(SFIZZLIBS)
+	$(CXX) -std=c++23 -o $@ $^ $(GTEST_LIBS) -pthread $(SFIZZLIBS)
 
 test: $(TESTY)
 	./$(TESTY)
 
 testy: test
 
+# --- PORT: szybka walidacja skladni calego buildu (clang, -fsyntax-only) ---
+# Nie tworzy obiektow ani binarki; nie przerywa na pierwszym bledzie - kompiluje
+# skladniowo wszystkie zrodla i na koncu wypisuje sumaryczny licznik; kod
+# wyjscia != 0, gdy byly bledy. Pelny log: $(BUILD)/clang-check.log
+# spv_data.cpp jest generowany z shaderow (xxd) - pominiety.
+# Celowo hardcode clang++ (nie $(CXX)): sens celu to wlasnie clang; przelaczenie
+# CXX=... nie ma psuc jego przeznaczenia. Pelny build pod GCC: patrz naglowek.
+CLANGXX        := clang++
+CPPFLAGS_CHECK := $(filter-out -MMD -MP,$(CPPFLAGS))
+
+clang-check:
+	@command -v $(CLANGXX) >/dev/null 2>&1 || { \
+	  echo 'clang-check: brak clang++ w PATH (pacman -S clang)'; exit 127; }
+	@mkdir -p $(BUILD)
+	@rm -f $(BUILD)/clang-check.log
+	@fail=0; files=0; \
+	for o in $(GAME_OBJS); do files=$$((files+1)); \
+	  $(CLANGXX) $(CXXFLAGS) $(CPPFLAGS_CHECK) -fsyntax-only $(GAME)/$$o.cpp \
+	    >> $(BUILD)/clang-check.log 2>&1 || fail=$$((fail+1)); \
+	done; \
+	for o in $(PORT_OBJS); do files=$$((files+1)); \
+	  $(CLANGXX) $(CXXFLAGS) $(CPPFLAGS_CHECK) -fsyntax-only $(SRCDIR)/$$o.cpp \
+	    >> $(BUILD)/clang-check.log 2>&1 || fail=$$((fail+1)); \
+	done; \
+	for o in $(LAYER_OBJS); do \
+	  case "$$o" in spv_data) continue;; esac; \
+	  files=$$((files+1)); \
+	  $(CLANGXX) $(CXXFLAGS) $(CPPFLAGS_CHECK) -fsyntax-only $(PORTDIR)/$$o.cpp \
+	    >> $(BUILD)/clang-check.log 2>&1 || fail=$$((fail+1)); \
+	done; \
+	errs=$$(grep -c ' error: ' $(BUILD)/clang-check.log || true); \
+	warns=$$(grep -c ' warning: ' $(BUILD)/clang-check.log || true); \
+	echo "clang-check: $$files plikow, $$fail z bledami, $$errs bledow, $$warns warningow"; \
+	echo "  pelny log: $(BUILD)/clang-check.log"; \
+	[ "$$fail" -eq 0 ]
+
 clean:
 	rm -rf $(BUILD) $(BIN)
 
-.PHONY: all run clean test testy
+.PHONY: all run clean test testy clang-check
 
 # PORT: zaleznosci naglowkowe (.d z gcc) dolaczane NA KOCU - jak na poczatku,
 # pierwszy cel z pliku .d stalby sie celem domyslnym make zamiast "all"
