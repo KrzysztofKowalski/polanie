@@ -248,6 +248,8 @@ extern void PressButton(int B, int P);
 extern void MouseEngine(void);
 // PORT: nowa mechanika - leczenie rannych jednostek (src/unit_heal.cpp)
 extern "C" void POL_UnitHealTick(void);
+// PORT: zamkniecie okna (port.h cale w extern "C" - stad extern "C" tez tutaj)
+extern "C" int POL_QuitRequested(void);
 int licznik2 = 0;
 //=========== PORT: podglad zaznaczonego obiektu (feature wersji CD) ===========
 // PORT: W wersji CD w prawym gornym rogu panelu bitwy jest wytloczone okienko
@@ -723,6 +725,13 @@ void Battle(int type) // 1-single start   0-rs   2-loaded
 
 void ShowSelected() {
   int i, j;
+  // PORT: zamkniecie okna (X / skrot menedzera okien) konczy bitwe - jak w
+  // menu glownym (main.cpp:263, POL_QuitRequested). Bez tego prosba o
+  // zamkniecie w trakcie bitwy byla ignorowana az do powrotu do menu.
+  // quitLevel = 1 to istniejaca sciezka "konca scenariusza" (petla glowna
+  // bitwy i petle wewnetrzne ja sprawdzaja) -> menu -> tam koniec gry.
+  if (POL_QuitRequested())
+    quitLevel = 1;
   //---------------------
   if (showAll) {
     showAll = 0;
@@ -3696,6 +3705,10 @@ int sSubMenu() {
   mouse.Y = 0;
   do {
     MouseEngine();
+    // PORT: zamkniecie okna w menu zapisu = anuluj (return 4); proper wyjscie
+    // z bitwy zalatwia sprawdzenie POL_QuitRequested w ShowSelected
+    if (POL_QuitRequested())
+      return 4;
     if (mouse.MWindow(100, 30, 220, 47)) // Save 1
     {
       PressButton(1, 0);
