@@ -89,10 +89,14 @@ int PlaceUsed = 0;
 int diff = 0;
 int master = 0, drzewa;
 int color1, color2 = Blue;
-char xleczenie, yleczenie;
+// PORT: int zamiast char - indeksy placeG[...] (clang -Wchar-subscripts,
+// wartosci < MaxX/MaxY; semantyka bez zmian, cecha Watcomu)
+int xleczenie, yleczenie;
 int chat = 100;
 int showAll = 1;
-char skroller = 4, skroller1 = 0;
+// PORT: int zamiast char - skroller indeksuje XX[]/lancuch[] (clang
+// -Wchar-subscripts); wartosci 0-5, semantyka bez zmian
+int skroller = 4, skroller1 = 0;
 int speed = 1;
 int ile0 = 0, ile1 = 0;
 char prowintion[25] = {2, 2, 2, 3, 2, 2, 4, 4, 3, 3, 2, 4, 3,
@@ -176,7 +180,8 @@ char *guzik[3], *lancuch[2];
 
 //=========== Zmienne extern ===========
 
-extern int quit = 0;
+int quit = 0; // PORT: bylo "extern int quit = 0" - extern przy definicji
+              // z inicjalizatorem to blad w C++ (clang -Wextern-initializer)
 extern int level;
 extern volatile int licznik; // PORT: volatile - pisany z callbacku zegara
 extern char *picture[MaxPictures], *missiles[6][3][3], *tlo, *Mysz[13];
@@ -578,8 +583,10 @@ void Battle(int type) // 1-single start   0-rs   2-loaded
 
           if (mouseCounter > 0)
             mouseCounter--;
+          // PORT: klamry wokol zewnetrznego if (clang -Wdangling-else);
+          // semantyka bez zmian - else i tak wiazal sie z if (select.IFF < 1)
           if (mouseCounter == 1 ||
-              (!mouseCounter && mouseCommand == 1)) // wypisz panel
+              (!mouseCounter && mouseCommand == 1)) { // wypisz panel
             if (select.IFF < 1) {
               int comm = 0;
               if (select.co == 1) {
@@ -602,6 +609,7 @@ void Battle(int type) // 1-single start   0-rs   2-loaded
             } else {
               ShowPanel(0, 0, 0, 0, 0);
             }
+          } // PORT: koniec klamry zewnetrznego if (dangling-else)
 
           ////////////////////////////////////////////////////////////////
           if (Msg.dzwiek) {
@@ -874,6 +882,17 @@ void ShowSelected() {
                     kkk++;
                   }
               if (b < 20) {
+                // PORT: Watcom mial leaky for-scope - po petlach j==20, i==20
+                // (warunki koncowe; petle nie maja break), wiec oryginal
+                // przypisywal TU ZAWSZE &castle[0].b[20].m[20] - adres za
+                // tablica (deterministyczny, nigdy prawdziwa jednostka).
+                // W C++ petle maja wlasny scope, a zewnetrzne i/j z
+                // ShowSelected() sa tu niezainicjalizowane -> dziki wskaznik
+                // (UB). Odtwarzamy wartosci Watcomu 1:1 (bez zmiany zachowania;
+                // probny fix "sensownego wyboru" = b[b].m[p] wymaga decyzji
+                // usera - patrz raport).
+                j = 20;
+                i = 20;
                 selectM = &castle[0].b[j].m[i];
                 if (kkk == 1)
                   grupa = 0;
@@ -1827,7 +1846,9 @@ void DispatchEvent() {
       selectB = &castle[select.IFF].b[select.nrb];
     if (!select.IFF && select.co)
       mouseMode = 1;
-    char p, b, i;
+    // PORT: int zamiast char - p/b/i to indeksy tablic (clang
+    // -Wchar-subscripts); wartosci 0-20, semantyka bez zmian (cecha Watcomu)
+    int p, b, i;
     for (i = 0; i < 10; i++)
       if (posTT[pp][i][0] || posTT[pp][i][1] < 20) {
         if (i)
@@ -2534,7 +2555,9 @@ void InitBattle(int level,
             pl.next = (char)(z - 48) + i * 10;
           }
           if (z == '*') {
-            char cc = 0;
+            // PORT: int zamiast char - cc indeksuje pl.name[] (clang
+            // -Wchar-subscripts); semantyka bez zmian
+            int cc = 0;
             do {
               z = getc(plikPlansz);
               pl.name[cc] = z;
@@ -2643,35 +2666,35 @@ void InitBattle(int level,
             place[i][j] = 10;
           }
           // skaly
-          if (z == 'Ó') {
+          if (z == 211 /* PORT: 'Ó' = CP1250 0xD3 */) {
             placeG[i][j] = 9;
             place[i][j] = 10;
           }
-          if (z == 'É') {
+          if (z == 201 /* PORT: 'É' = CP1250 0xC9 */) {
             placeG[i][j] = 10;
             place[i][j] = 10;
           }
-          if (z == 'ş') {
+          if (z == 186 /* PORT: 'ş' = CP1250 0xBA */) {
             placeG[i][j] = 11;
             place[i][j] = 10;
           }
-          if (z == 'Ů') {
+          if (z == 217 /* PORT: 'Ů' = CP1250 0xD9 */) {
             placeG[i][j] = 12;
             place[i][j] = 10;
           }
-          if (z == 'Ä') {
+          if (z == 196 /* PORT: 'Ä' = CP1250 0xC4 */) {
             placeG[i][j] = 13;
             place[i][j] = 10;
           }
-          if (z == '¸') {
+          if (z == 184 /* PORT: '¸' = CP1250 0xB8 */) {
             placeG[i][j] = 14;
             place[i][j] = 10;
           }
-          if (z == 'ł') {
+          if (z == 179 /* PORT: 'ł' = CP1250 0xB3 */) {
             placeG[i][j] = 15;
             place[i][j] = 10;
           }
-          if (z == 'Í') {
+          if (z == 205 /* PORT: 'Í' = CP1250 0xCD */) {
             placeG[i][j] = 16;
             place[i][j] = 10;
           }
@@ -2679,19 +2702,19 @@ void InitBattle(int level,
             placeG[i][j] = 17;
             place[i][j] = 0;
           } // wejscie
-          if (z == 'Ľ') {
+          if (z == 188 /* PORT: 'Ľ' = CP1250 0xBC (hexdump: U+013D, wielkie L) */) {
             placeG[i][j] = 18;
             place[i][j] = 10;
           }
-          if (z == 'Ô') {
+          if (z == 212 /* PORT: 'Ô' = CP1250 0xD4 */) {
             placeG[i][j] = 19;
             place[i][j] = 10;
           }
-          if (z == 'Ú') {
+          if (z == 218 /* PORT: 'Ú' = CP1250 0xDA */) {
             placeG[i][j] = 20;
             place[i][j] = 10;
           }
-          if (z == '·') {
+          if (z == 183 /* PORT: '·' = CP1250 0xB7 */) {
             placeG[i][j] = 21;
             place[i][j] = 10;
           }
@@ -2902,7 +2925,7 @@ void InitBattle(int level,
             castle[0].m[p0].SetIFF(1);
             castle[0].m[p0].Show();
           }
-          if (z == '°' && p0 < 39) // 176  nasz Pastuch
+          if (z == 176 /* PORT: '°' = CP1250 0xB0 */ && p0 < 39) // 176  nasz Pastuch
           {
             p0++;
             castle[0].m[p0].Init(10, i, j, 0, 5);
@@ -2910,7 +2933,7 @@ void InitBattle(int level,
             castle[0].m[p0].SetIFF(1);
             castle[0].m[p0].Show();
           }
-          if (z == '±' && p0 < 39) // 177 nasz Mag
+          if (z == 177 /* PORT: '±' = CP1250 0xB1 */ && p0 < 39) // 177 nasz Mag
           {
             p0++;
             castle[0].m[p0].Init(11, i, j, 0, 5);
@@ -2918,7 +2941,7 @@ void InitBattle(int level,
             castle[0].m[p0].SetIFF(1);
             castle[0].m[p0].Show();
           }
-          if (z == '˛' && p0 < 39) //  178  nasz Kusznik
+          if (z == 178 /* PORT: '˛' = CP1250 0xB2 */ && p0 < 39) //  178  nasz Kusznik
           {
             p0++;
             castle[0].m[p0].Init(12, i, j, 0, 5);
@@ -3037,7 +3060,7 @@ void InitBattle(int level,
             castle[1].m[p1].SetIFF(2);
             castle[1].m[p1].Show();
           }
-          if (z == '­' && p1 < 39) // 173          pastuch
+          if (z == 173 /* PORT: '­' = CP1250 0xAD */ && p1 < 39) // 173          pastuch
           {
             p1++;
             castle[1].m[p1].Init(10, i, j, 0, 5);
@@ -3045,7 +3068,7 @@ void InitBattle(int level,
             castle[1].m[p1].SetIFF(2);
             castle[1].m[p1].Show();
           }
-          if (z == '®' && p1 < 39) // 174    Mag
+          if (z == 174 /* PORT: '®' = CP1250 0xAE */ && p1 < 39) // 174    Mag
           {
             p1++;
             castle[1].m[p1].Init(11, i, j, 0, 5);
@@ -3053,7 +3076,7 @@ void InitBattle(int level,
             castle[1].m[p1].SetIFF(2);
             castle[1].m[p1].Show();
           }
-          if (z == 'Ż' && p1 < 39) // 175            kusznik
+          if (z == 175 /* PORT: 'Ż' = CP1250 0xAF */ && p1 < 39) // 175            kusznik
           {
             p1++;
             castle[1].m[p1].Init(12, i, j, 0, 5);
