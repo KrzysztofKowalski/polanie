@@ -3058,12 +3058,19 @@ void Castle::Run() {
   command.co = 5;
   command.command = 0;
   // zbierz mleczko
+  // PORT: fix overflow - przyrost jednego ticka (suma produkcji wszystkich
+  // krow i jednostek) mogl przeskoczyc maxmilk, bo sprawdzano tylko
+  // milk<maxmilk NA POCZATKU ticka; teraz dokladamy tylko do limitu
   if (milk < maxmilk) {
+    int pol_dodatek = 0;
     for (i = 0; i < 20; i++)
-      milk += b[i].Milk();
+      pol_dodatek += b[i].Milk();
     for (i = 1; i < MaxUnitsInCastle; i++)
       if (!m[i].type)
-        milk += m[i].Milk();
+        pol_dodatek += m[i].Milk();
+    milk += pol_dodatek;
+    if (milk > maxmilk)
+      milk = maxmilk;
   } else {
     milk = maxmilk;
   }
