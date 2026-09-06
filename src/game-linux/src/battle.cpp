@@ -953,38 +953,6 @@ void ShowSelected() {
     }
     SetClippingArea13h(0, 0, 319, 199);
 
-    ///////////// wypisz mleko /////////////////////////////////
-    PutImage13h(299, 9, drewno[2], 0); //???
-    // PORT: skala paska wzgledna do maxmilk - pelny magazyn = szczyt paska.
-    // Stala skala 0-1410 pol/zep.10 powodowala, ze limit z danych mapy
-    // (pl.maxmilk=(M-48)*200+50, battle.cpp:2547) wypadal na ~80-90% paska
-    // i mleko nie dobijalo do 100%. Teraz wysokosc = milk*141/maxmilk
-    // (maxmilk z danych mapy; limit u gory - znacznik LightRed na szczycie).
-    // Bez limitu (maxmilk=0) zostaje stara skala milk/10.
-    int pol_max = castle[master].maxmilk; // 0 = bez limitu (bez znacznika)
-    int pol_milk = castle[master].milk;
-    if (pol_max > 0) {
-      if (pol_milk > pol_max)
-        pol_milk = pol_max;
-      int pol_h = pol_milk * 141 / pol_max;
-      if (pol_h > 141)
-        pol_h = 141;
-      if (pol_h)
-        Bar13h(299, 150 - pol_h, 314, 150, 255);
-      Bar13h(299, 9, 314, 10, LightRed); // znacznik limitu (szczyt paska)
-    } else {
-      if (pol_milk > 1410)
-        pol_milk = 1410;
-      pol_milk /= 10;
-      if (pol_milk)
-        Bar13h(299, 150 - pol_milk, 314, 150, 255);
-    }
-
-    // PORT: podglad zaznaczonego obiektu w okienku panelu (feature wersji CD);
-    // po pasku mleka, bo jego ramka drewno[2] (299,9) przykrywa prawy skraj
-    // okienka (x299-309) - podglad lezy na wierzchu paska (jak okno w CD)
-    ShowSelectionPreview();
-
     ////////////////mapa//////////////////////////////////
     if (mouseCommand < 2) {
       ShowBattleMap(ScreenX, ScreenY);
@@ -1091,6 +1059,43 @@ void ShowSelected() {
       OutText13h(19, 86, cel2, 1);
       OutText13h(20, 85, cel2, FontColor);
     }
+
+    ///////////// wypisz mleko /////////////////////////////////
+    PutImage13h(299, 9, drewno[2], 0); //???
+    // PORT: skala paska wzgledna do maxmilk - pelny magazyn = szczyt paska.
+    // Stala skala 0-1410 pol/zep.10 powodowala, ze limit z danych mapy
+    // (pl.maxmilk=(M-48)*200+50, battle.cpp:2547) wypadal na ~80-90% paska
+    // i mleko nie dobijalo do 100%. Teraz wysokosc = milk*141/maxmilk
+    // (maxmilk z danych mapy; limit u gory - znacznik LightRed na szczycie).
+    // Bez limitu (maxmilk=0) zostaje stara skala milk/10.
+    // PORT: retest 2026-09-06 - blok mleka NA KONCU malowania panelu: pod
+    // stara pozycja (przed ShowBattleMap) pozniejsze malowania (podglad
+    // okienka, mapa, teksty) zaslanialy lewa czesc ramki (x299..309 ramka
+    // drewno[2] z zapisu tla), wypełnienie bylo widoczne tylko w oknie
+    // 310..313. Teraz nic po bloku nie maluje tego obszaru az do myszki.
+    int pol_max = castle[master].maxmilk; // 0 = bez limitu (bez znacznika)
+    int pol_milk = castle[master].milk;
+    if (pol_max > 0) {
+      if (pol_milk > pol_max)
+        pol_milk = pol_max;
+      int pol_h = pol_milk * 141 / pol_max;
+      if (pol_h > 141)
+        pol_h = 141;
+      if (pol_h)
+        Bar13h(299, 150 - pol_h, 314, 150, 255);
+      Bar13h(299, 9, 314, 10, LightRed); // znacznik limitu (szczyt paska)
+    } else {
+      if (pol_milk > 1410)
+        pol_milk = 1410;
+      pol_milk /= 10;
+      if (pol_milk)
+        Bar13h(299, 150 - pol_milk, 314, 150, 255);
+    }
+
+    // PORT: podglad zaznaczonego obiektu w okienku panelu (feature wersji CD);
+    // po pasku mleka, bo jego ramka drewno[2] (299,9) przykrywa prawy skraj
+    // okienka (x299-309) - podglad lezy na wierzchu paska (jak okno w CD)
+    ShowSelectionPreview();
   }
   /////////////// pokazanie myszki  ////////////////////////////
   int M;
