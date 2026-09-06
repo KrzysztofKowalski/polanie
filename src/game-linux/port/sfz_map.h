@@ -1,4 +1,23 @@
 // PORT: mapa instrumentow S3M (Adlib/OPL) -> General MIDI -> pliki .sfz (VSCO CE).
+// ROZSTRZYGNIECIA 2026-09-06 (po sluchowych odsluchach MT32, user):
+//  ~ lańcuch = DWIE mapy: (1) nazwa S3M -> GM wg ROLI (kS3mInstrumentMap),
+//    (2) GM -> preset MT-32 wg tabeli autora SF2 (GM.txt -> gm2preset). W kilku
+//    ogniwach autor tabeli albo "rola" dobiera preset nieprawdziwy:
+//     - GM 89 "pad 2 warm" -> preset 000:093 "Fr Horn 2" (dudniacy rog) =>
+//       na mapie GM 89 -> 88, preset 000:032 "Fantasy" (pad), te same dla VSCO;
+//     - GM 81 "Lead 1 square" -> preset 000:045 "Schooldaze" — abstrakt (bez
+//       realnego odpowiednika; zostalo — fallback, do ewentualnego override);
+//     - GM 30 "Distortion Guitar" -> preset 000:018 "Harpsi 3" (klawesyn!) —
+//       krytyczne ogniwo (ZynDist.Full); patrz kMt32PresetOverride w planie.
+//     - GM 36 "Slap Bass" -> 000:068 "Slap Bass 1" (za "poppy" dla
+//       HeavyGummiBass) => na mapie GM 36 -> 38 (Syn Bass 1, preset 28).
+//     - "horn" GM 60 -> preset 000:092 "Fr Horn 1" (wąski, piskliwy na
+//       wysokich nutach 68-75 w startach 011/015) => GM 61 (Brs Sect 1,
+//       preset 095; VSCO kSfzMap[61] = TrumpetSus).
+//     - "hathyb2" 011/015: hi-hat 46 -> naturalne 76/79 (piskliwe) ->
+//       FINAL klucz 48 (hi-mid tom; jest w GM-StylePerc, zaokraglony).
+//  - "SlowAttack*"/"long synth"/"A      ("/fm1 -> GM 88 (uwaga wyzej);
+//    kSfzMap[88]/[89] to ten sam fallback VSCO (brak zmiany VSCO).
 // Czysta tabela danych dla toru MIDI+sfizz; niczego nie includuje z port_audio.*,
 // nie zmienia zachowania istniejacego kodu (tor S3M dalej gra przez libopenmpt).
 //
@@ -12,8 +31,7 @@
 // Adliba opisane nazwami; do sfz mapujemy PO NAZWACH (nie da sie odtworzyc
 // rejestrow OPL jako sampli 1:1).
 //
-// VSCO-2-CE (Creative Commons biblioteka sampli, pobierana i instalowana
-// osobno - sciezka przez env POLANIE_VSCO, patrz README): 75 plikow .sfz,
+// VSCO (/home/k/Projects/polanie-src/vsco -> VSCO-2-CE-1.1.0): 75 plikow .sfz,
 // zadny nie mapi numerow programow GM (to solo-patche, brak opcode'ow prog/bank).
 // Pliki -KS sa wersjami z keyswitchami (sw_lokey..sw_hikey); uzywamy zwyklych
 // wariantow bez -KS (domyslna artykulacja = plik z sus/vib/spic/pizz w nazwie),
@@ -23,7 +41,13 @@
 //
 // Perkusja: kanał 10 MIDI -> GM-StylePerc.sfz (220 regionow, klucze ~32-94 w
 // ukladzie zblizonym do GM; braki: 43/44/45, 57, 58 - cisza). Dla instrumentow
-// S3M perkusyjnych pole perc_note = numer nuty GM w tym mapie (0 = nie perkusja).
+// S3M perkusyjnych pole perc_note = numer nuty GM (0 = nie perkusja albo
+// PERKUSJA NATURALNA: Gdy perc_note=0 ALE sfz==GM-StylePerc.sfz, instrument
+// gra na kanale 10 z ORYGINALNĄ nutą z modułu (np. "hathyb2" GRAF_011/015
+// gra nuty 76/79 - woodblock/shaker w GM-StylePerc; przypinanie do stałego
+// klucza (dawniej 46 = otwarty hi-hat) było subotwartym "szaleństwem").
+// To wariant "naturalny" dla perkusji, której nuty mieszczą się w zakresie
+// kluczy mapy GM-StylePerc — trafia w typ, zamiast tłumaczyć na GM.
 #ifndef POL_SFZ_MAP_H
 #define POL_SFZ_MAP_H
 
@@ -188,15 +212,15 @@ struct S3mInsMap {
 
 static const S3mInsMap kS3mInstrumentMap[] = {
     // GRAF_001 "Victoria"
-    {1, 1, "horn", 60, 0, 0, "FHornSus.sfz"},
+    {1, 1, "horn", 61, 0, 0, "FHornSus.sfz"},
     {1, 2, "snare", 0, 38, 0, "GM-StylePerc.sfz"},
-    {1, 3, "SlowAttackLead.2", 89, 0, 1, "ViolinEnsSusVib-Quiet.sfz"},
+    {1, 3, "SlowAttackLead.2", 88, 0, 1, "ViolinEnsSusVib-Quiet.sfz"},
     {1, 4, "AttackLead", 81, 0, 1, "SViolinVib.sfz"},
     {1, 5, "DoumBass", 32, 0, 1, "ContrabassPizz.sfz"}, // alternatywnie kick ch10/36
     {1, 6, "PsiFlute", 73, 0, 0, "FluteSusVib.sfz"},
     // GRAF_002 "menu - end ver."
     {2, 1, "bass short 01", 33, 0, 0, "ContrabassPizz.sfz"},
-    {2, 2, "long synth 01", 89, 0, 1, "ViolinEnsSusVib-Quiet.sfz"},
+    {2, 2, "long synth 01", 88, 0, 1, "ViolinEnsSusVib-Quiet.sfz"},
     {2, 3, "Strings", 48, 0, 0, "ViolinEnsSusVib.sfz"},
     // GRAF_003 "intro - end ver."
     {3, 1, "bass 2 b l", 33, 0, 0, "ContrabassPizz.sfz"},
@@ -207,17 +231,17 @@ static const S3mInsMap kS3mInstrumentMap[] = {
     {3, 6, "ShortViolin", 40, 0, 0, "SViolinSpic.sfz"},
     {3, 7, "BloppStick", 0, 37, 0, "GM-StylePerc.sfz"},
     // GRAF_004 (bez tytulu)
-    {4, 1, "A      (", 89, 0, 1, "ViolinEnsSusVib-Quiet.sfz"}, // nazwa nieczytelna
+    {4, 1, "A      (", 88, 0, 1, "ViolinEnsSusVib-Quiet.sfz"}, // nazwa nieczytelna
     {4, 2, "bass 2 c l", 33, 0, 0, "ContrabassPizz.sfz"},
     {4, 3, "ZynDist.Full", 30, 0, 1, "OrganLoud.sfz"}, // dist lead -> fallback
-    {4, 4, "fm1", 89, 0, 1, "ViolinEnsSusVib-Quiet.sfz"}, // patch nieopisany
+    {4, 4, "fm1", 88, 0, 1, "ViolinEnsSusVib-Quiet.sfz"}, // patch nieopisany
     {4, 5, "Strings", 48, 0, 0, "ViolinEnsSusVib.sfz"},
     // GRAF_005 "history - end ver."
     {5, 1, "HitString", 48, 0, 0, "ViolinEnsSpic.sfz"},
-    {5, 2, "SlowAttackLead.2", 89, 0, 1, "ViolinEnsSusVib-Quiet.sfz"},
+    {5, 2, "SlowAttackLead.2", 88, 0, 1, "ViolinEnsSusVib-Quiet.sfz"},
     {5, 3, "Strings", 48, 0, 0, "ViolinEnsSusVib.sfz"},
     {5, 4, "AttackLead", 81, 0, 1, "SViolinVib.sfz"},
-    {5, 5, "HeavyGummiBass", 36, 0, 1, "ContrabassSpic.sfz"},
+    {5, 5, "HeavyGummiBass", 38, 0, 1, "ContrabassSpic.sfz"}, // 36->Slap1; 38->SynBass1
     // GRAF_006 "wiktor - end ver."
     {6, 1, "DoumBass", 32, 0, 1, "ContrabassPizz.sfz"},
     {6, 2, "snare", 0, 38, 0, "GM-StylePerc.sfz"},
@@ -248,8 +272,13 @@ static const S3mInsMap kS3mInstrumentMap[] = {
     // GRAF_011 (bez tytulu)
     {11, 1, "bass 1 l", 33, 0, 0, "ContrabassPizz.sfz"},
     {11, 2, "bass 2 a l", 33, 0, 0, "ContrabassPizz.sfz"},
-    {11, 3, "hathyb2", 0, 46, 0, "GM-StylePerc.sfz"},
-    {11, 4, "horn", 60, 0, 0, "FHornSus.sfz"},
+    // "hathyb2": gra nuty 0x54/0x57 (GM 76/79). Kolejno: klucz 46 (otwarty
+    // hi-hat) -> spleszczenie; potem PERKUSJA NATURALNA (76/79 = woodblock/
+    // shaker, GM-StylePerc) -> "piskliwe". FINAL: klucz 48 "hi-mid tom"
+    // (jest w GM-StylePerc) - zaokraglony, bez pisku; naturalne 76/79 w
+    // dalszym planie (mechanizm percNatural zostaje, patrz Renderer/MidiSink).
+    {11, 3, "hathyb2", 0, 48, 0, "GM-StylePerc.sfz"},
+    {11, 4, "horn", 61, 0, 0, "FHornSus.sfz"},
     {11, 5, "sup bass", 33, 0, 0, "ContrabassPizz.sfz"},
     {11, 6, "PsiFlute", 73, 0, 0, "FluteSusVib.sfz"},
     // GRAF_012 "plansza 2 - end version"
@@ -262,11 +291,11 @@ static const S3mInsMap kS3mInstrumentMap[] = {
     {12, 7, "Tsunk", 0, 75, 1, "GM-StylePerc.sfz"},     // klucz do dobrania
     {12, 8, "AttackLead", 81, 0, 1, "SViolinVib.sfz"},
     {12, 9, "HitString", 48, 0, 0, "ViolinEnsSpic.sfz"},
-    {12, 10, "fm1", 89, 0, 1, "ViolinEnsSusVib-Quiet.sfz"},
+    {12, 10, "fm1", 88, 0, 1, "ViolinEnsSusVib-Quiet.sfz"},
     // GRAF_013 "plansza3 - end ver."
     {13, 1, "bass 2 d l", 33, 0, 0, "ContrabassPizz.sfz"},
     {13, 2, "ZynDist.Full", 30, 0, 1, "OrganLoud.sfz"},
-    {13, 3, "HeavyGummiBass", 36, 0, 1, "ContrabassSpic.sfz"},
+    {13, 3, "HeavyGummiBass", 38, 0, 1, "ContrabassSpic.sfz"}, // jak GRAF_005
     {13, 4, "newkick", 0, 36, 0, "GM-StylePerc.sfz"},
     {13, 5, "snare", 0, 38, 0, "GM-StylePerc.sfz"},
     {13, 6, "SlowAttackStrings", 48, 0, 0, "ViolinEnsSusVib.sfz"},
@@ -280,22 +309,23 @@ static const S3mInsMap kS3mInstrumentMap[] = {
     {14, 7, "Tsunk", 0, 75, 1, "GM-StylePerc.sfz"},
     {14, 8, "AttackLead", 81, 0, 1, "SViolinVib.sfz"},
     {14, 9, "HitString", 48, 0, 0, "ViolinEnsSpic.sfz"},
-    {14, 10, "fm1", 89, 0, 1, "ViolinEnsSusVib-Quiet.sfz"},
-    // GRAF_015 (bez tytulu) = GRAF_011
+    {14, 10, "fm1", 88, 0, 1, "ViolinEnsSusVib-Quiet.sfz"},
+    // GRAF_015 (bez tytulu) = GRAF_011 (identyczny modul; hathyb2 klucz 48,
+    // jak przy modulu 11 -- tom zamiast piskliwego woodblock/shakera)
     {15, 1, "bass 1 l", 33, 0, 0, "ContrabassPizz.sfz"},
     {15, 2, "bass 2 a l", 33, 0, 0, "ContrabassPizz.sfz"},
-    {15, 3, "hathyb2", 0, 46, 0, "GM-StylePerc.sfz"},
-    {15, 4, "horn", 60, 0, 0, "FHornSus.sfz"},
+    {15, 3, "hathyb2", 0, 48, 0, "GM-StylePerc.sfz"},
+    {15, 4, "horn", 61, 0, 0, "FHornSus.sfz"},
     {15, 5, "sup bass", 33, 0, 0, "ContrabassPizz.sfz"},
     {15, 6, "PsiFlute", 73, 0, 0, "FluteSusVib.sfz"},
     // GRAF_016 "plansza6 - end ver."
     {16, 1, "bass 1 l", 33, 0, 0, "ContrabassPizz.sfz"},
     {16, 2, "AttackLead", 81, 0, 1, "SViolinVib.sfz"},
     {16, 3, "DoumBass", 32, 0, 1, "ContrabassPizz.sfz"},
-    {16, 4, "SlowAttacksound.5", 89, 0, 1, "ViolinEnsSusVib-Quiet.sfz"},
+    {16, 4, "SlowAttacksound.5", 88, 0, 1, "ViolinEnsSusVib-Quiet.sfz"},
     {16, 5, "AttackLead 2", 81, 0, 1, "SViolinVib.sfz"},
     // GRAF_017 "plansza 7 - end ver"
-    {17, 1, "A      (", 89, 0, 1, "ViolinEnsSusVib-Quiet.sfz"},
+    {17, 1, "A      (", 88, 0, 1, "ViolinEnsSusVib-Quiet.sfz"},
     {17, 2, "SlowAttackStrings", 48, 0, 0, "ViolinEnsSusVib.sfz"},
     {17, 3, "AttackLead", 81, 0, 1, "SViolinVib.sfz"},
     {17, 4, "Little Percussion", 0, 115, 1, "GM-StylePerc.sfz"},
@@ -308,14 +338,17 @@ static const S3mInsMap kS3mInstrumentMap[] = {
 };
 
 // Wyszukiwanie: program GM -> wpis (NULL gdy poza 0-127).
-static const SfzMapEntry *find_sfz_for_gm(int gm) {
+// static inline: naglowek wchodzi do kilku TU (sfz_engine.cpp, narzedzie,
+// testy) - nie kazde z nich uzywa funkcji (wystarczy jeden nieuzywajacy,
+// a -Werror -Wunused-function waliloby pelny rebuild).
+static inline const SfzMapEntry *find_sfz_for_gm(int gm) {
   if (gm < 0 || gm > 127)
     return NULL;
   return &kSfzMap[gm];
 }
 
 // Wszystkie instrumenty danego modulu (liczba wpisow).
-static int count_s3m_instruments(int modul) {
+static inline int count_s3m_instruments(int modul) {
   int n = 0;
   for (size_t i = 0; i < sizeof(kS3mInstrumentMap) / sizeof(kS3mInstrumentMap[0]); i++)
     if (kS3mInstrumentMap[i].modul == modul)

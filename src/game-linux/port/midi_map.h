@@ -1,5 +1,5 @@
-// PORT: mapa utworow CD (PlayTrack(n)) na dodatkowe pliki .mid (fanowskie
-// aranżacje, katalog wskazywany przez POLANIE_MIDI). Wydzielona jak
+// PORT: mapa utworow CD (PlayTrack(n)) na fanowskie pliki .mid
+// (autor: Krzysztof Fornalski, jprok_pliki/rozpakowane). Wydzielona jak
 // track_map.h - czysta tabela + logika szukania pliku, linkowalna w testach.
 //
 // Fallback toru (decyzja projektowa): gdy utwor ma wpis tutaj I plik .mid
@@ -29,7 +29,7 @@
 
 struct MidiTrackMap {
   int cd;           // numer utworu z PlayTrack(n)
-  const char *dir;  // podkatalog w korzeniu utworow MIDI (POLANIE_MIDI)
+  const char *dir;  // podkatalog w korzeniu jprok_pliki/rozpakowane/
   const char *needle; // ASCII-podciag nazwy pliku (case-insensitive)
   int loop;         // zapetlac po zakonczeniu?
   const char *info; // uzasadnienie / komentarz
@@ -53,7 +53,7 @@ static const MidiTrackMap kMidiTrackMap[] = {
     // np. zwyciestwa: {5, "luzyce_2", "luzyce2.", 0, "hymn Luczycow"},
 };
 
-static const MidiTrackMap *find_midi_track(int cd) {
+static inline const MidiTrackMap *find_midi_track(int cd) {
   for (size_t i = 0; i < sizeof(kMidiTrackMap) / sizeof(kMidiTrackMap[0]); i++)
     if (kMidiTrackMap[i].cd == cd)
       return &kMidiTrackMap[i];
@@ -61,7 +61,9 @@ static const MidiTrackMap *find_midi_track(int cd) {
 }
 
 // ASCII-porownanie bez wielkosci liter (bez locale - nazwy plikow sa bajtowe).
-static int ascii_nocase_find(const char *hay, const char *needle) {
+// static inline: naglowek wchodzi tez do port_audio.cpp, ktore tej funkcji nie
+// uzywa (skadnalad -Werror -Wunused-function przy pelnym rebuildzie).
+static inline int ascii_nocase_find(const char *hay, const char *needle) {
   if (!hay || !needle)
     return 0;
   auto low = [](char c) {

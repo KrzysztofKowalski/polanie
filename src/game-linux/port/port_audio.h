@@ -16,12 +16,13 @@ int POL_MixerInit(void);
 // Zamyka strumien, zwalnia modul muzyczny i glosy.
 void POL_MixerShutdown(void);
 
-// ---------- tor muzyki: S3M / MIDI+sfizz / auto ----------
+// ---------- tor muzyki: S3M / MIDI+sfizz / MIDI+MT32 / auto ----------
 // PORT: wybor toru muzyki. AUTO (default): gdy dla numeru utworu istnieje
 // skojarzony plik .mid (port/midi_map.h, fanowskie utwory Fornalskiego) -
 // gramy MIDI przez sfizz (VSCO CE); inaczej modul S3M (libopenmpt).
-// S3M/SFZ wymuszaja tor (CLI --audioType=..., patrz port/audio_opts.h).
-void POL_SetAudioType(int t); // POL_AUDIO_AUTO / POL_AUDIO_S3M / POL_AUDIO_SFZ
+// S3M/SFZ/MT32 wymuszaja tor (CLI --audioType=..., patrz port/audio_opts.h;
+// MT32 = FluidSynth + assets/soundfont/*GM.sf2, tor ciezki: sfload ~0,6-1 GB).
+void POL_SetAudioType(int t); // POL_AUDIO_AUTO/S3M/SFZ/MT32 (audio_opts.h)
 int POL_GetAudioType(void);
 
 // ---------- muzyka (zamiennik CD-Audio) ----------

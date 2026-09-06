@@ -345,6 +345,19 @@ struct Sim {
   }
 
   void playOneLine() {
+    // PORT (limit iteracji — NAPRAWA 2026-09-06): maxRows (ordnum*64*maxpass)
+    // był liczony w konstruktorze i drukowany w statystykach, lecz NIGDY nie
+    // sprawdzany — sim kończył się tylko przez rozkaz>=ordnum / kolejnosc==255.
+    // Moduły ze skokiem ef2 na końcu zapętlają ordery w nieskończoność
+    // (GRAF_002: ostatnia linia patternu 7 = maska 0x80, ef=2, par=2 -> skok
+    // do orderu 2; to pętla menu, w oryginale gry wieczna) -> pętla
+    // while (!sim.end) wisiała na 100% CPU. Limit z --maxpass działa realnie:
+    if (maxRows > 0 && rows >= maxRows) {
+      end = true;
+      limitHit = true;
+      return;
+    }
+    rows++;
     bool endLine = false;
     while (!endLine) {
       if (wskP >= m.patdata.size()) {
@@ -365,12 +378,32 @@ struct Sim {
       ef = 0;
       par = 0;
       st.maxCh = std::max<int>(st.maxCh, int(chanel & 31));
+      // PORT: zabezpieczenie odczytów klauzuli — wcześniej m.patdata[wskP++]
+      // czytało POZA końcem wektora (UB, śmieci jako ef/par -> mogły
+      // fabrykować skoki ef2 z losowego bajtu); teraz: koniec linii + count
       if (chanel & 32) {
+        if (wskP + 1 >= m.patdata.size()) {
+          st.przecieki++;
+          endLine = true;
+          break;
+        }
         note = m.patdata[wskP++];
         inst = m.patdata[wskP++];
       }
-      if (chanel & 64) vol = m.patdata[wskP++];
+      if (chanel & 64) {
+        if (wskP >= m.patdata.size()) {
+          st.przecieki++;
+          endLine = true;
+          break;
+        }
+        vol = m.patdata[wskP++];
+      }
       if (chanel & 128) {
+        if (wskP + 1 >= m.patdata.size()) {
+          st.przecieki++;
+          endLine = true;
+          break;
+        }
         ef = m.patdata[wskP++];
         par = m.patdata[wskP++];
       }
@@ -486,6 +519,7 @@ struct WavWriter {
   FILE *f = nullptr;
   uint32_t frames = 0;
   bool ok = false;
+  float peak = 0.f; // maksimum bezwzgledne (do raportu dBFS po renderze)
   bool open(const std::string &path) {
     f = std::fopen(path.c_str(), "wb");
     if (!f) return false;
@@ -519,12 +553,18 @@ struct WavWriter {
   void write(const float *L, const float *R, int n) {
     if (!ok) return;
     auto clip = [](float x) { return x < -1.f ? -1.f : (x > 1.f ? 1.f : x); };
+    float mx = 0.f;
     for (int i = 0; i < n; i++) {
+      float al = fabsf(L[i]);
+      float ar = fabsf(R[i]);
+      if (al > mx) mx = al;
+      if (ar > mx) mx = ar;
       int16_t l = int16_t(std::lround(clip(L[i]) * 32767.0f));
       int16_t r = int16_t(std::lround(clip(R[i]) * 32767.0f));
       uint8_t b[4];
       b[0] = uint8_t(uint16_t(l) & 255);
       b[1] = uint8_t((uint16_t(l) >> 8) & 255);
+      if (mx > peak) peak = mx;
       b[2] = uint8_t(uint16_t(r) & 255);
       b[3] = uint8_t((uint16_t(r) >> 8) & 255);
       ok = std::fwrite(b, 1, 4, f) == 4;
@@ -605,6 +645,19 @@ struct Renderer : Sink {
         return kS3mInstrumentMap[i].perc_note;
     return 0;
   }
+  // PERKUSJA NATURALNA: wpis mapy z GM-StylePerc BEZ ustalonego klucza
+  // (perc_note=0) -> instrument ma grac originalne nuty na kanale 10
+  // (np. "hathyb2" GRAF_011/015: nuty 76/79 = woodblock/shaker w
+  // GM-StylePerc; ku temu istniało "szaleństwo" z kluczem 46 hi-hatu)
+  bool percNatural(int inst1) const {
+    if (inst1 < 1) return false;
+    for (size_t i = 0; i < sizeof(kS3mInstrumentMap) / sizeof(kS3mInstrumentMap[0]); i++)
+      if (kS3mInstrumentMap[i].modul == modulNr &&
+          kS3mInstrumentMap[i].indeks == inst1)
+        return kS3mInstrumentMap[i].perc_note == 0 &&
+               std::strcmp(kS3mInstrumentMap[i].sfz, SFZ_PERC_FILE) == 0;
+    return false;
+  }
   const char *sfzPlik(int inst1) const {
     if (inst1 < 1) return nullptr;
     for (size_t i = 0; i < sizeof(kS3mInstrumentMap) / sizeof(kS3mInstrumentMap[0]); i++)
@@ -618,7 +671,7 @@ struct Renderer : Sink {
     if (c < 0 || c >= kMaxChannels) return;
     ChVoice &v = ch[c];
     if (inst1 >= 1 && inst1 <= 100) v.curInst = inst1;
-    bool perc = percNote(v.curInst) > 0;
+    bool perc = percNote(v.curInst) > 0 || percNatural(v.curInst);
     if (v.curInst >= 1) {
       const char *sfz = perc ? SFZ_PERC_FILE : sfzPlik(v.curInst);
       if (sfz) {
@@ -652,7 +705,8 @@ struct Renderer : Sink {
       v.active = false;
       v.activeNote = -1;
     }
-    int nuta = perc ? percNote(v.curInst) : midi;
+    int nuta = perc ? (percNote(v.curInst) > 0 ? percNote(v.curInst) : midi)
+                    : midi; // naturalna: originalna nuta z modulu
     if (nuta < 0 || nuta > 127) return;
     sfizz_send_note_on(v.syn, 0, nuta, vel);
     v.active = true;
@@ -719,6 +773,242 @@ struct Renderer : Sink {
   }
 };
 
+// ---------------------------------------------------------------------------
+// (2b) Dump eventów symulatora do Standard MIDI File (format 1) — odsłuch MT32
+// ---------------------------------------------------------------------------
+// Ten sam strumień eventów co tor VSCO (Sink -> Sim), zapisany jako SMF:
+//   * 9 kanałów OPL (0-8) -> kanały MIDI 0-8 (perkusja -> kanał 9, bank 128);
+//   * nuta: MIDI = oktawa*12 + półton + 12 (identyczna konwersja jak w
+//     Sim::playOneLine noteOn, linia 413);
+//   * czas: 1 tick symulatora = 20 ms (timer 50 Hz, linia co `speed` ticków);
+//     SMF: PPQ = 24, tempo 480000 us/kwarta (kwadrans 480 ms) =>
+//     1 miara MIDI = dokładnie 20 ms (bez zaokrągleń tempo);
+//   * program GM wg kS3mInstrumentMap (game-linux/port/sfz_map.h):
+//     melodyczny -> CC0 bank 0 + Program Change gm; perkusyjny -> kanał 9
+//     z nutą perc_note (jak Renderer::noteOn); brak wpisu mapy -> PC 0 + log.
+// Renderer (sfizz) zostaje nietknięty — to dostawkowa classa Sink, wywoływana
+// osobnym przebiegiem Sim w main() (--dump-midi).
+struct MidiEv {
+  uint32_t tick = 0; // bezwzględny tick 50 Hz (20 ms)
+  uint8_t n = 0;     // liczba bajtów zdarzenia (bez czasu trwania)
+  uint8_t b[4] = {};
+  MidiEv(uint32_t t, uint8_t nn, uint8_t b0 = 0, uint8_t b1 = 0,
+         uint8_t b2 = 0, uint8_t b3 = 0) {
+    tick = t;
+    n = nn;
+    b[0] = b0;
+    b[1] = b1;
+    b[2] = b2;
+    b[3] = b3;
+  }
+};
+
+struct MidiSink : Sink {
+  int modulNr = 0;
+  uint32_t tick = 0; // ustawiane przez wywołującego przed każdym sim.tick()
+  std::vector<MidiEv> evs;
+  int prog[16];  // wydany program GM na kanale MIDI (0-9); -1 = jeszcze nie
+  int lastCh[9]; // kanał MIDI ostatniej nuty kanału OPL (9 = perkusja)
+  int lastNote[9];
+  bool have[9]; // trwa nuta na kanale OPL?
+  long nProg = 0, nOn = 0, nOff = 0, nCc = 0, nMissing = 0;
+
+  explicit MidiSink(int modul) : modulNr(modul) {
+    for (int i = 0; i < 16; i++)
+      prog[i] = -1;
+    for (int i = 0; i < 9; i++) {
+      lastCh[i] = i;
+      lastNote[i] = 0;
+      have[i] = false;
+    }
+  }
+
+  void setTick(uint32_t t) { tick = t; }
+
+  const S3mInsMap *findIns(int inst1) const {
+    if (inst1 < 1) return nullptr;
+    for (size_t i = 0; i < sizeof(kS3mInstrumentMap) / sizeof(kS3mInstrumentMap[0]); i++)
+      if (kS3mInstrumentMap[i].modul == modulNr &&
+          kS3mInstrumentMap[i].indeks == inst1)
+        return &kS3mInstrumentMap[i];
+    return nullptr;
+  }
+
+  void programChange(int ch, int gm) {
+    if (prog[ch] == gm)
+      return;
+    if (prog[ch] < 0)
+      evs.emplace_back(tick, 3, uint8_t(0xB0 | ch), 0, 0); // CC0: bank 0
+    evs.emplace_back(tick, 2, uint8_t(0xC0 | ch), uint8_t(gm & 127), 0);
+    prog[ch] = gm;
+    nProg++;
+  }
+
+  void noteOn(int c, int midi, int vel, int inst1) override {
+    if (c < 0 || c >= kMaxChannels)
+      return;
+    int note = midi;
+    int tch = c;
+    if (inst1 >= 1) {
+      const S3mInsMap *e = findIns(inst1);
+      if (e) {
+        if (e->perc_note > 0) {
+          tch = 9; // perkusja GM -> kanał 10 (0-based 9), nuta perc_note
+          note = e->perc_note;
+        } else if (e->gm >= 0) {
+          programChange(c, e->gm);
+        }
+      } else {
+        nMissing++;
+        std::fprintf(stderr, "  [midi] instrument %d bez wpisu mapy (kanał %d) "
+                             "- PC 0 (dźwięk może nie pasować)\n",
+                     inst1, c);
+        programChange(c, 0);
+      }
+    } else if (prog[c] < 0) {
+      programChange(c, 0); // inst1==0 (niewykryte) -> domyślny program
+    }
+    if (note < 0 || note > 127)
+      return;
+    // PORT (naprawa wiszących nut): oryginał gra MONO na kanał — przed każdą
+    // nową nutą wykonuje StopNote(chanel) (tak robi Renderer::noteOn ->
+    // sfizz_send_note_off). SMF był tego pozbawiony: GM jest poliglota, nuty
+    // są rozdzielne, więc poprzednia nuta WISAŁA do note-off 254/vol==0 lub
+    // aż do EOF (fluidsynth: "not all notes have received a note off" ->
+    // słyszalne zawieszki w ogonie). Wysyłamy note-off przed nową nutą.
+    if (have[c]) {
+      evs.emplace_back(tick, 3, uint8_t(0x80 | lastCh[c]), uint8_t(lastNote[c]),
+                       0);
+      have[c] = false;
+      nOff++;
+    }
+    // PORT (moc nut): oryginał skalował głośność OPL (vol 0..63, MVol=8),
+    // a surowe vvv po konwersji dawało nuty 1..30 -> -30..-60 dB = "sparse
+    // cicho, jeden instrument głośny". Band 30..127: dynamika zostaje,
+    // dół nie pada do ciszy.
+    int vv = 30 + (vel * 97) / 127;
+    if (vv < 1) vv = 1;
+    if (vv > 127) vv = 127;
+    evs.emplace_back(tick, 3, uint8_t(0x90 | tch), uint8_t(note), uint8_t(vv));
+    lastCh[c] = tch;
+    lastNote[c] = note;
+    have[c] = true;
+    nOn++;
+  }
+
+  void noteOff(int c, bool) override {
+    if (c < 0 || c >= kMaxChannels || !have[c])
+      return;
+    evs.emplace_back(tick, 3, uint8_t(0x80 | lastCh[c]), uint8_t(lastNote[c]),
+                     0);
+    have[c] = false;
+    nOff++;
+  }
+
+  void volumeOnly(int c, int vel) override {
+    if (c < 0 || c >= kMaxChannels)
+      return;
+    // PORT (moc nut, cz. 2): CC7 = surowe vvv dawało kanały 1..30 (fluid
+    // interpretuje CC7 40log10(v/127): 1..30 = ok. -52..-25 dB -> "większość
+    // cicho"). Band 50..90: najniższy kanał -8 dB (słyszalny), najwyższy
+    // -3 dB; dynamika między kanałami zostaje.
+    int cc = 50 + (vel * 40) / 127;
+    evs.emplace_back(tick, 3, uint8_t(0xB0 | c), 7, uint8_t(cc));
+    nCc++;
+  }
+
+  void close(const std::string &path, uint32_t endTick) {
+    FILE *f = std::fopen(path.c_str(), "wb");
+    if (!f) {
+      std::fprintf(stderr, "nie można otworzyć %s do zapisu\n", path.c_str());
+      return;
+    }
+    auto wr = [&](const void *d, size_t n) { std::fwrite(d, 1, n, f); };
+    auto be32 = [&](uint32_t v) {
+      uint8_t b[4] = {uint8_t(v >> 24), uint8_t(v >> 16), uint8_t(v >> 8),
+                      uint8_t(v)};
+      wr(b, 4);
+    };
+    auto be16 = [&](uint16_t v) {
+      uint8_t b[2] = {uint8_t(v >> 8), uint8_t(v)};
+      wr(b, 2);
+    };
+    // nagłówek: format 1, 2 ścieżki, 24 PPQ (1 miara = 20 ms przy tempie 480000)
+    wr("MThd", 4);
+    be32(6);
+    be16(1);
+    be16(2);
+    be16(24);
+    // ścieżka 0: tempo 480000 us/kwarta (ćwierćnuta = 480 ms), 4/4, EOT
+    static const uint8_t t0[] = {
+        0x00, 0xFF, 0x51, 0x03, 0x07, 0x53, 0x00, // tempo meta
+        0x00, 0xFF, 0x58, 0x04, 0x04, 0x02, 0x18, 0x08, // sygnatura 4/4
+        0x00, 0xFF, 0x2F, 0x00};                   // end of track
+    wr("MTrk", 4);
+    be32(uint32_t(sizeof(t0)));
+    wr(t0, sizeof(t0));
+    // ścieżka 1: eventy (delta w miarach MIDI = tick 50 Hz)
+    std::vector<uint8_t> body;
+    uint32_t last = 0;
+    for (auto &e : evs) {
+      uint32_t d = e.tick >= last ? e.tick - last : 0;
+      // VLQ na body
+      if (d == 0)
+        body.push_back(0);
+      else {
+        uint8_t b[4] = {};
+        int n = 0;
+        while (d) {
+          b[n++] = uint8_t(d & 127);
+          d >>= 7;
+        }
+        for (int i = n - 1; i >= 0; i--)
+          body.push_back(i ? (b[i] | 0x80) : b[i]);
+      }
+      last = e.tick;
+      for (int i = 0; i < e.n; i++)
+        body.push_back(e.b[i]);
+    }
+    // PORT (naprawa wiszących nut, cz. 2): utwór się kończy, a nuty jeszcze
+    // wiszą (oryginał gra mono — ostatni noteOn nie dostał noteOff; utwory z
+    // pętlami/pattern-breakami typowo urywają się nutą). Dopisujemy note-off
+    // na TYM SAMYM ticku co ostatnie zdarzenie — zamiast oddawać koniec do
+    // auto-OFF w playerze (fluidsynth ostrzega "not all notes have received a
+    // note off" o wiszące nuty i tnie je EOT; dzięki temu 2-sekundowy tail
+    // robi naturalny ring-out release, jak w torze sfizz).
+    for (int c = 0; c < 9; c++) {
+      if (!have[c])
+        continue;
+      body.push_back(0); // delta 0 (ten sam tick co ostatnie zdarzenie)
+      body.push_back(uint8_t(0x80 | lastCh[c]));
+      body.push_back(uint8_t(lastNote[c]));
+      body.push_back(0x00); // velocity note-off: nieużywane
+      have[c] = false;
+      nOff++;
+    }
+    uint32_t tail = endTick > last ? endTick - last : 0;
+    if (tail == 0)
+      body.push_back(0);
+    else {
+      uint8_t b[4] = {};
+      int n = 0;
+      while (tail) {
+        b[n++] = uint8_t(tail & 127);
+        tail >>= 7;
+      }
+      for (int i = n - 1; i >= 0; i--)
+        body.push_back(i ? (b[i] | 0x80) : b[i]);
+    }
+    body.push_back(0xFF);
+    body.push_back(0x2F);
+    body.push_back(0x00);
+    wr("MTrk", 4);
+    be32(uint32_t(body.size()));
+    wr(body.data(), body.size());
+    std::fclose(f);
+  }
+};
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -730,7 +1020,8 @@ static void wypiszUwagi(const S3mMod &m) {
 }
 
 int main(int argc, char **argv) {
-  std::string plik, out, vscoDir = "./vsco";
+  std::string plik, out, vscoDir = "/home/k/Projects/polanie-src/vsco";
+  std::string midiOut; // --dump-midi out.mid: SMF zamiast renderu sfizz
   bool dump = false;
   int maxpass = 1, tailS = 3, mvol = 8;
   double gainDb = 0.0;
@@ -738,16 +1029,21 @@ int main(int argc, char **argv) {
     std::string a = argv[i];
     auto nast = [&](int &v) { v = std::atoi(argv[++i]); };
     if (a == "--dump") dump = true;
+    else if (a == "--dump-midi" && i + 1 < argc) midiOut = argv[++i];
     else if (a == "-o" && i + 1 < argc) out = argv[++i];
     else if (a == "--maxpass") nast(maxpass);
     else if (a == "--tail") nast(tailS);
     else if (a == "--mvol") nast(mvol);
-    else if (a == "--vol-gain") gainDb = std::atof(argv[++i]);
+    else if (a == "--vol-gain" || a == "--gain-db")
+      gainDb = std::atof(argv[++i]); // aliasy: ta sama wartosc w dB
     else if (a == "--vsco" && i + 1 < argc) vscoDir = argv[++i];
     else if (a == "-h" || a == "--help") {
-      std::printf("s3m_vsco_render [--dump] plik.s3m [-o out.wav] "
-                  "[--maxpass N] [--tail S] [--mvol N] [--vol-gain dB] "
-                  "[--vsco DIR]\n");
+      std::printf("s3m_vsco_render [--dump] [--dump-midi out.mid] plik.s3m "
+                  "[-o out.wav] [--maxpass N] [--tail S] [--mvol N] "
+                  "[--vol-gain dB] [--vsco DIR]\n"
+                  "  --vol-gain / --gain-db: wzmocnienie toru VSCO w dB "
+                  "(ujemne = ciszej; do zrownywania trzech torow\n"
+                  "  VSCO/MT32/OPL w skryptach scripts/audio/)\n");
       return 0;
     } else plik = a;
   }
@@ -775,6 +1071,22 @@ int main(int argc, char **argv) {
               m.gvol, m.speed, m.tempo, m.mvol, int(m.scrm), m.patdata.size());
   wypiszUwagi(m);
 
+  // PORT: moduły NIE-OPL (instrumenty ty: typ!=2 / brak "SCRI", np. GRAF_002
+  // „menu - end ver." z próbkami PCM) — sekwencja (ordery/patterny) jest NADAL
+  // standardowym S3M, więc symulacja i render przez soundfont działają; tylko
+  // brzmienie wyprowadzone z próbek soundfontu zamiast chipu. Ostrzegamy, NIE
+  // pomijamy (to nie błąd — do odsłuchu toru vsco/mt32 dokładnie o to chodzi).
+  {
+    bool okl = true;
+    for (auto &in : m.ins)
+      if (in.typ != 2 || std::memcmp(in.sig, "SCRI", 4) != 0)
+        okl = false;
+    if (!okl)
+      std::printf("  [parser] moduł z instrumentami NIE-OPL (typ!=2 / brak "
+                  "SCRI): render przez soundfont po mapie nazw — symulacja "
+                  "sekwencji przebiega normalnie\n");
+  }
+
   struct NullSink : Sink {
     void noteOn(int, int, int, int) override {}
     void noteOff(int, bool) override {}
@@ -794,6 +1106,11 @@ int main(int argc, char **argv) {
               st.ef1, st.ef2, st.ef3, st.ef4, st.efInne, st.maxCh, st.chIgnored,
               st.instPozaZakres, st.instZero, st.semPonad11, st.volUnderflow,
               st.skoki, st.przecieki, simLog.limitHit ? "TAK" : "nie");
+  if (simLog.limitHit)
+    std::printf("  [limit] zapętlenie orderów (ef2-skok) — symulacja odcięta po "
+                "%ld liniach (--maxpass %d; zwiększ maxpass żeby wyrenderować "
+                "więcej pasa)\n",
+                simLog.rows, maxpass);
   if (!st.efHist.empty()) {
     std::printf("  [parser] nieobsłużone efekty (oryginał je ignoruje):");
     for (auto &e : st.efHist) std::printf(" ef%d=%ld", e.first, e.second);
@@ -832,6 +1149,27 @@ int main(int argc, char **argv) {
       std::printf("      UNCERTAIN: mapowanie po znaczeniu nazwy — do weryfikacji na słuch\n");
   }
 
+  if (!midiOut.empty()) {
+    // świeży przebieg symulatora z MidiSink (identyczny strumień eventów,
+    // który poszedłby do sfizz; Renderer nie jest budowany/ładowany)
+    MidiSink msink(modulNr);
+    Sim simM(m, msink, mvol, maxpass);
+    long tk = 0;
+    while (!simM.end) {
+      msink.setTick(uint32_t(tk)); // 1 tick = 20 ms (timer 50 Hz jak w grze)
+      simM.tick();
+      tk++;
+    }
+    msink.close(midiOut, uint32_t(tk) + uint32_t(tailS * 50));
+    std::printf("  --dump-midi: %s | %zu eventów (prog %ld, on %ld, off %ld, "
+                "cc %ld, bez-wpisu %ld) | %.2f s + %d s ogonu | SMF1, PPQ 24, "
+                "1 miara = 20 ms\n",
+                midiOut.c_str(), msink.evs.size(), msink.nProg, msink.nOn,
+                msink.nOff, msink.nCc, msink.nMissing,
+                double(tk) / 50.0, tailS);
+    return 0;
+  }
+
   if (dump) {
     std::printf("  tryb --dump: render pominięty\n");
     return 0;
@@ -856,6 +1194,16 @@ int main(int argc, char **argv) {
               "retrig volume %ld\n",
               out.c_str(), double(wav.frames) / kSampleRate, rend.sfzUzyte.size(),
               rend.loadCount, rend.volRetrig);
+  // peak (dBFS) do zrównania trzech torów w skryptach (VSCO/MT32/OPL):
+  // wartościa porównywalną jest 20*log10(peak) - nie mocna subiektywna
+  {
+    float p = wav.peak > 0.f ? wav.peak : 1e-9f;
+    std::printf("  peak: %+.1f dBFS (maks %.3f)\n",
+                20.0 * std::log10((double)p), (double)p);
+  }
+  if (simR.limitHit)
+    std::printf("  [render] WAV przycięty na limicie --maxpass %d (zapętlenie "
+                "orderów — patrz log symulacji)\n", maxpass);
   for (auto &s : rend.sfzUzyte) std::printf("    sfz: %s\n", s.c_str());
   return 0;
 }

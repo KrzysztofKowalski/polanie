@@ -24,6 +24,13 @@ OPENMPTLIBS := $(shell pkg-config libopenmpt --libs 2>/dev/null || echo -lopenmp
 # UWAGA: plik .pc sfizza wypuszcza "-llibsfizz" (zly format -l); linkujemy
 # poprawnie jako -lsfizz (libsfizz.so).
 SFIZZLIBS := -lsfizz
+# PORT: tor MIDI+MT32 (wavmusic_backend.cpp) - libfluidsynth (systemowa). Wzorzec
+# jak libopenmpt powyzej: gdy pkg-config nie odpowie albo da inne flagi - puste
+# zmienne, wavmusic_backend.o kompiluje sie jako stub (POL_HAVE_MT32
+# niezdefiniowane) i gra dziala jak przed dodaniem toru (komunikat przy
+# --audioType=mt32: "niedostepne (brak libfluidsynth w buildzie)").
+MT32FLAGS := $(shell pkg-config fluidsynth --cflags 2>/dev/null)
+MT32LIBS := $(shell pkg-config fluidsynth --libs 2>/dev/null)
 
 GAME := ../game
 PORTDIR := port
@@ -37,6 +44,13 @@ BIN := pol2
 # (bez tego obiekty kompilowane przed dodaniem shimow woluly glibc fopen!)
 CPPFLAGS := -I$(INCDIR) -I$(PORTDIR) -I$(GAME) $(SDL3FLAGS) $(OPENMPTFLAGS) \
             -include $(INCDIR)/polshim.h -MMD -MP
+
+# PORT: tor MT32 aktywny tylko gdy pkg-config fluidsynth zna biblioteke
+# (wtedy i cflags i libs niepuste -> definiujemy POL_HAVE_MT32 dla
+# wavmusic_backend.cpp; przy pustych zmiennych - stub bez zaleznosci)
+ifneq ($(strip $(MT32FLAGS)$(MT32LIBS)),)
+CPPFLAGS += -DPOL_HAVE_MT32 $(MT32FLAGS)
+endif
 
 # pliki gry kompilowane bez zmian (z katalogu game/)
 # PORT: battle, graphics, mover1 i mapa przeniesione do src/ (kopie 1:1 +
@@ -58,7 +72,8 @@ PORT_OBJS := main image13h mouse menegdma cd dpmi playfli battle unit_heal \
              graphics mover1 mapa
 # nowa warstwa SDL2
 LAYER_OBJS := port_sdl port_shims port_fopen port_audio sound_dat \
-              midi_parser midi_map_files sfz_engine mix_simd port_gpu
+              midi_parser midi_map_files sfz_engine sfz_backend s3m_backend \
+              wavmusic_backend mix_simd port_gpu
 # PORT: backend GPU (SDL3 GPU/Vulkan, port_gpu.cpp) wymaga SPIR-V - shadery
 # GLSL port/present.{vert,frag} kompilowane w czasie budowy (glslangValidator
 # albo glslc), wbudowane jako tablice bajtow (xxd -> build/spv_data.cpp).
@@ -151,6 +166,20 @@ $(BUILD)/midi_map_files.o: $(PORTDIR)/midi_map_files.cpp $(PORTDIR)/midi_map_fil
 $(BUILD)/sfz_engine.o: $(PORTDIR)/sfz_engine.cpp $(PORTDIR)/sfz_engine.h \
                        $(PORTDIR)/midi_parser.h $(PORTDIR)/sfz_map.h
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c $< -o $@
+
+# PORT: backends muzyki (audio_backend.h): SFZ - adapter 1:1 nad sfz_engine.h,
+# S3M (libopenmpt), MT32 (libfluidsynth; buduje sie tez jako stub gdy
+# POL_HAVE_MT32 niezdefiniowane - patrz flagi wyzej)
+$(BUILD)/sfz_backend.o: $(PORTDIR)/sfz_backend.cpp $(PORTDIR)/sfz_backend.h \
+                        $(PORTDIR)/audio_backend.h $(PORTDIR)/sfz_engine.h
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c $< -o $@
+$(BUILD)/s3m_backend.o: $(PORTDIR)/s3m_backend.cpp $(PORTDIR)/s3m_backend.h \
+                        $(PORTDIR)/audio_backend.h
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c $< -o $@
+$(BUILD)/wavmusic_backend.o: $(PORTDIR)/wavmusic_backend.cpp $(PORTDIR)/wavmusic_backend.h \
+                         $(PORTDIR)/audio_backend.h $(PORTDIR)/midi_parser.h \
+                         $(PORTDIR)/mix_simd.h
+	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c $< -o $@
 $(BUILD)/mix_simd.o: $(PORTDIR)/mix_simd.cpp $(PORTDIR)/mix_simd.h
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c $< -o $@
 
@@ -180,7 +209,8 @@ $(BUILD)/spv_data.o: $(BUILD)/spv_data.cpp
 endif
 
 $(BIN): $(OBJS)
-	$(CXX) $(CXXFLAGS) -o $@ $(OBJS) $(SDLLIBS) $(OPENMPTLIBS) $(SFIZZLIBS)
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJS) $(SDLLIBS) $(OPENMPTLIBS) $(SFIZZLIBS) \
+	    $(MT32LIBS)
 
 run: $(BIN)
 	./$(BIN)

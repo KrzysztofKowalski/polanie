@@ -1,5 +1,5 @@
-// PORT: parsowanie opcji CLI toru audio (--audioType=s3m|sfz). Header-only,
-// bez zaleznosci - testowalny w gtest bez linkowania warstwy SDL.
+// PORT: parsowanie opcji CLI toru audio (--audioType=s3m|sfz|mt32|auto).
+// Header-only, bez zaleznosci - testowalny w gtest bez linkowania warstwy SDL.
 //
 // Uzycie w src/main.cpp: przegladamy argv i kazdy argument odsylamy tu;
 // wartosc >= 0 ustawiamy przez POL_SetAudioType (port_audio.h).
@@ -9,10 +9,13 @@
 // Tryby toru muzyki (zgodne z POL_AUDIO_* w port_audio.h).
 // PORT: decyzja usera 2026-09-04 — VSCO niestabilne, domyślnie S3M (jawne
 // auto/sfz nadal działa); AUTO tylko przy --audioType=auto|--audioType=midi.
+// PORT: mt32 (FluidSynth + soundfont MT-32 Hedsound) też tylko jawnie —
+// tor ciężki (sfload 447 MiB do RAM) i wymaga assets/soundfont/*GM.sf2.
 enum PolAudioType {
-  POL_AUDIO_AUTO = 0, // --audioType=auto: .mid tam gdzie jest, inaczej S3M
-  POL_AUDIO_S3M = 1,  // wymuszony tor S3M (libopenmpt); domyślny bez flagi
-  POL_AUDIO_SFZ = 2,  // wymuszony tor MIDI+sfizz
+  POL_AUDIO_AUTO = 0,  // --audioType=auto: .mid tam gdzie jest, inaczej S3M
+  POL_AUDIO_S3M = 1,   // wymuszony tor S3M (libopenmpt); domyślny bez flagi
+  POL_AUDIO_SFZ = 2,   // wymuszony tor MIDI+sfizz (VSCO CE)
+  POL_AUDIO_MT32 = 3,  // wymuszony tor MIDI+FluidSynth (soundfont MT-32)
 };
 
 // Parsuje jeden argument argv. Zwraca:
@@ -47,6 +50,8 @@ static inline int pol_parse_audio_type_arg(const char *arg) {
     return POL_AUDIO_S3M;
   if (eq("sfz"))
     return POL_AUDIO_SFZ;
+  if (eq("mt32") || eq("mt32sfz") || eq("mt32-sfz")) // aliasy nazwy
+    return POL_AUDIO_MT32;
   if (eq("auto") || eq("midi"))
     return POL_AUDIO_AUTO;
   return -2;

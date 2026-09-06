@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <strings.h> // strcasecmp (stem_match)
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -33,11 +34,19 @@
 #include "sound_dat.h" // PORT: kontener SOUND.DAT (glosy jednostek 1-183)
 
 // PORT: tor MIDI+sfizz (fanowskie .mid + soundfonty VSCO CE) + dispatch SIMD
-#include "audio_opts.h"  // POL_AUDIO_AUTO/S3M/SFZ (ten sam enum co tu)
+#include "audio_opts.h"  // POL_AUDIO_AUTO/S3M/SFZ/MT32 (ten sam enum co tu)
 #include "midi_map.h"    // tabela utworow CD -> .mid (fanowskie)
-#include "midi_map_files.h" // szukanie plikow .mid + katalog vsco/
+#include "midi_map_files.h" // szukanie plikow .mid + katalog vsco/ + SF2 MT32
 #include "mix_simd.h"    // gorace petle miksera (AVX2/scalar)
-#include "sfz_engine.h"  // silnik MIDI+sfizz
+// PORT: biblioteki muzyki za abstrakcja audio_backend.h - jeden wskaźnik
+// zamiast gałęzi per silnik:
+//   SfzBackend  - MIDI+sfizz (VSCO CE), adapter 1:1 nad port/sfz_engine.h,
+//   WavMusicBackend - GENERYCZNA muzyka WAV (CD-PCM replacement; tor mt32 = FluidSynth + *GM.sf2),
+//   S3mBackend  - S3M/libopenmpt (tor przeniesiony bez zmiany zachowania)
+#include "audio_backend.h"
+#include "wavmusic_backend.h"
+#include "s3m_backend.h"
+#include "sfz_backend.h"
 
 // PORT: <SDL.h>/<string>/<vector> robia "#undef fopen" i zabijaja makro
 // fopen->POL_fopen z polshim.h (jak w STATUS pkt 1 dla <cstdio>) - bez tego
@@ -45,12 +54,6 @@
 // nie siegaly do katalogu danych/ekstraktu (cichy brak dzwieku). Przywracamy.
 #ifndef fopen
 #define fopen POL_fopen
-#endif
-
-// ---------------------------------------------------------------- openmpt ---
-#if __has_include(<libopenmpt/libopenmpt.h>)
-#define POL_HAVE_OPENMPT 1
-#include <libopenmpt/libopenmpt.h>
 #endif
 
 #define MIX_FREQ 48000
@@ -72,18 +75,6 @@ static float vol_gain(int v) {
     v = 5;
   return g[v];
 }
-
-// PORT: glosnosc muzyki przez OPENMPT_MODULE_RENDER_MASTERGAIN_MILLIBEL
-// (wzmocnienie w setnych decybela; 0 mB = 1.0). vol_gain -> decybely.
-#ifdef POL_HAVE_OPENMPT
-#include <math.h>
-static int32_t vol_millibel(int v) {
-  float g = vol_gain(v);
-  if (g <= 0.0f)
-    return -96000; // wyciszone
-  return (int32_t)lround(2000.0f * log10f(g));
-}
-#endif
 
 // ---------------------------------------------------------------- stan ----
 static SDL_AudioStream *strm = NULL;
@@ -110,29 +101,38 @@ struct SfxEntry {
 // wewnetrzne przenosza sie przy realokacji outer, dane zostaja na heapie).
 static std::vector<SfxEntry> sfx_cache;
 
-#ifdef POL_HAVE_OPENMPT
-static openmpt_module *mod = NULL; // pod mx
-#endif
 static int music_active = 0; // pod mx (jaki kolwiek tor muzyki)
-static int music_loop = 0;   // pod mx (tor S3M)
 static int cur_cd = 0;       // ostatnio zadany utwor CD
 static int music_vol = 5;    // skala 0-5 (setVolume z cd.h)
 static int sfx_vol = 5;
-static int openmpt_missing_logged = 0;
+// PORT: backend muzyki przez POL_AudioBackend (port/audio_backend.h):
+//   midi_backend  - tor MIDI: SfzBackend albo WavMusicBackend (wg --audioType);
+//   s3m_backend   - tor S3M (libopenmpt); stale jeden obiekt;
+//   music_backend - ostatnio aktywny backend (pod mx) dla mix_cb/Stop/Shutdown
+static std::unique_ptr<POL_AudioBackend> midi_backend;
+static std::unique_ptr<POL_AudioBackend> s3m_backend;
+static POL_AudioBackend *music_backend = NULL; // pod mx
 // PORT: tor muzyki (CLI --audioType=...): 0=auto (.mid -> sfizz, inaczej S3M),
-// 1=wymuszony S3M, 2=wymuszony MIDI+sfizz. Patrz port/audio_opts.h.
+// 1=wymuszony S3M, 2=wymuszony MIDI+sfizz (VSCO), 3=wymuszony MIDI+MT32
+// (FluidSynth + soundfont Hedsound). Patrz port/audio_opts.h.
 // PORT: decyzja usera 2026-09-04 — VSCO niestabilne, domyślnie S3M (jawne
-// auto/sfz nadal działa). Bez flagi nie ruszamy .mid/sfizz (play_midi_track
+// auto/sfz/mt32 nadal działa). Bez flagi nie ruszamy .mid/sfizz (play_midi_track
 // nie startuje, VSCO nie ładuje się).
 static int audio_type = POL_AUDIO_S3M;
 
 void POL_SetAudioType(int t) {
-  if (t < POL_AUDIO_AUTO || t > POL_AUDIO_SFZ)
+  if (t < POL_AUDIO_AUTO || t > POL_AUDIO_MT32)
     t = POL_AUDIO_AUTO;
   audio_type = t;
+  // PORT: jeden backend MIDI wg trybu - SFZ i AUTO używają sfizz+VSCO (jak
+  // dotąd), MT32 -> FluidSynth; S3M ma osobny backend (s3m_backend).
+  midi_backend.reset(t == POL_AUDIO_MT32 ? (POL_AudioBackend *)new WavMusicBackend()
+                                         : (POL_AudioBackend *)new SfzBackend());
   printf("PORT: tor muzyki: %s\n",
          t == POL_AUDIO_S3M ? "s3m (wymuszony, libopenmpt)"
          : t == POL_AUDIO_SFZ ? "sfz (wymuszony, sfizz+VSCO)"
+         : t == POL_AUDIO_MT32
+             ? "mt32 (wymuszony, fluidsynth+MT32-Hedsound)"
                               : "auto (.mid gdzie jest, inaczej S3M)");
 }
 
@@ -156,41 +156,29 @@ static void SDLCALL mix_cb(void *userdata, SDL_AudioStream *s, int additional,
 
   SDL_LockMutex(mx);
   size_t done = 0; // klatki muzyki
-  // PORT: tor MIDI+sfizz ma priorytet (gdy jest wlaczony utwor .mid);
-  // POL_SfzEngineRender dodaje synteze do bufora (miks addytywny).
-  int sfz_was = POL_SfzEnginePlaying();
-  if (music_active && sfz_was) {
-    // PORT-naprawa 2026-09-03: render moze skonczyc utwor w polowie bloku -
-    // zwraca wtedy liczbe wypelnionych klatek, a reszta jest zerowana
-    // (memset nizej); wczesniej `done = frames` wypychal do urzadzenia ogon
-    // bufora z nieaktualnymi probkami (slyszalne "rozciagniecie"/echo nut).
-    done = POL_SfzEngineRender(out, frames);
+  // PORT-naprawa (2026-09-06, ROOT CAUSE artefaktów): buf jest STATICZNY
+  // i zwykle zawiera rezultat poprzedniego bloku (muzyka+efekty po clamp).
+  // Renderery addytywne (sfizz, MT32 — kontrakt audio_backend.h) DODAJĄ
+  // syntezę, więc bez wyzerowania nakładały świeży blok na stary -> rosnące
+  // sumowanie przy każdym bloku -> przester/artefakty. (Tor S3M/libopenmpt
+  // NADPISUJE bufor i dlatego brzmiał dobrze — stąd mylne "VSCO niestabilne".)
+  // Bufor czyszczymy CAŁKOWICIE przed renderem; niżej tylko ogonek przy
+  // przedwczesnym końcu utworu (done < frames) zostaje dokładnie jak wcześniej.
+  memset(out, 0, frames * MIX_CH * sizeof(float));
+  // PORT: muzyka przez jeden aktywny backend (audio_backend.h) - sfizz, MT32
+  // albo libopenmpt. Render może skończyć utwór w połowie bloku: backend
+  // zwraca liczbę wypełnionych klatek, resztę zeruje memset niżej
+  // (PORT-naprawa 2026-09-03 - wcześniej `done = frames` wypychał do
+  // urządzenia ogon bufora z nieaktualnymi próbkami).
+  POL_AudioBackend *be = music_backend;
+  int was = 0;
+  if (music_active && be) {
+    was = be->playing();
+    if (was)
+      done = be->render(out, frames);
+    if (was && !be->playing())
+      music_active = 0; // utwór dograł się do końca (każdy backend)
   }
-#ifdef POL_HAVE_OPENMPT
-  if (done < frames && mod && music_active) {
-    done = openmpt_module_read_interleaved_float_stereo(mod, MIX_FREQ, frames,
-                                                        out);
-    if (done < frames && music_loop) {
-      // koniec utworu -> od poczatku (zapetlenie plansz/menu)
-      openmpt_module_set_position_seconds(mod, 0.0);
-      done += openmpt_module_read_interleaved_float_stereo(
-          mod, MIX_FREQ, frames - done, out + done * MIX_CH);
-    }
-    if (done < frames)
-      music_active = 0; // utwor wygral sie do konca
-  }
-#else
-  static int once = 0;
-  if (!once) {
-    once = 1;
-    openmpt_missing_logged = 1;
-    fprintf(stderr, "PORT: libopenmpt brak - muzyka S3M wylaczona\n");
-  }
-#endif
-  // PORT: utwor .mid wygral sie do konca (nie zapetlony, z ogonem release) ->
-  // czyscimy stan "gra muzyka" (CheckCD/POL_MusicPlaying)
-  if (sfz_was && !POL_SfzEnginePlaying())
-    music_active = 0;
   memset(out + done * MIX_CH, 0, (frames - done) * MIX_CH * sizeof(float));
 
   // glosy efektow: miks addytywny na wierzch muzyki. PORT: probki zrodlowe
@@ -266,11 +254,8 @@ static std::string music_path_for(int module) {
   return std::string();
 }
 
-static std::string basename_of(const char *p) {
-  const char *b = strrchr(p, '/');
-  b = b ? b + 1 : p;
-  return std::string(b);
-}
+// PORT: basename_of() usuniete - bylo nieuzywane (pelny rebuild z -Werror
+// wykryl -Wunused-function; smieci nie trzymamy).
 
 // PORT: rozwiazanie sciezki efektu przeniesione do port_fopen.cpp jako
 // POL_ResolveDataFile() - ta sama logika (katalog danych -> ekstrakt ->
@@ -378,13 +363,10 @@ int POL_MixerInit(void) {
 void POL_MixerShutdown(void) {
   SDL_LockMutex(mx);
   music_active = 0;
-  POL_SfzEngineStop(); // PORT: tor MIDI+sfizz (pod mx)
-#ifdef POL_HAVE_OPENMPT
-  if (mod) {
-    openmpt_module_destroy(mod);
-    mod = NULL;
+  if (music_backend) {
+    music_backend->stop(); // PORT: przez backend (sfizz|mt32|openmpt, pod mx)
+    music_backend = NULL;
   }
-#endif
   for (int i = 0; i < MAXVOICES; i++)
     voices[i].active = 0;
   SDL_UnlockMutex(mx);
@@ -394,35 +376,89 @@ void POL_MixerShutdown(void) {
   }
 }
 
-// PORT: tor MIDI+sfizz - wczytanie .mid i przygotowanie syntezatorow VSCO.
-// Wywolane bez mutexa (ladowanie VSCO trwa sekundy); pod mutexem tylko
-// POL_SfzEngineCommit. Zwraca 1 = utwor wystartowal.
+// PORT: tor MT32 w trybie GOTOWYCH WAV (export scripts/audio/mt32-export-all.sh):
+// zamiast .mid + SF2 gramy wyrenderowany plik (loop plansz/menu jak .mid);
+// sfload soundfontu nie startuje (fast/light). Zwraca 1 = utwor wystartowal.
+static int play_wav_track(int track, const char *wav, int loop) {
+  POL_AudioBackend *be = midi_backend.get();
+  if (!be) {
+    fprintf(stderr, "PORT: backend MIDI nie utworzony (--audioType?)\n");
+    return 0;
+  }
+  if (be->init((float)MIX_FREQ))
+    return 0;
+  int r = be->prepare(NULL, 0, wav, wav);
+  if (r < 0)
+    return 0;
+  SDL_LockMutex(mx);
+  be->setGain(vol_gain(music_vol)); // wspolna skala glosnosci muzyki
+  be->commit(loop);
+  music_backend = be;
+  music_active = 1;
+  cur_cd = track;
+  SDL_UnlockMutex(mx);
+  printf("PORT: muzyka: utwor %d -> %s (mt32, gotowy WAV)%s\n", track, wav,
+         loop ? " (loop)" : "");
+  // diagnostyka: menu OPCJE (MusikOff/battle.cpp) albo klawisz '0' (POMOC)
+  // ustawia poziom muzyki 0 -> CISZA przy dzialajacych efektach WAV
+  if (music_vol <= 0)
+    fprintf(stderr, "PORT: muzyka: UWAGA - poziom muzyki = 0 (OPCJE: MusikOn, "
+                    "albo klawisz 1-5); efekty WAV graja niezaleznie\n");
+  return 1;
+}
+
+// PORT: tor MIDI (sfizz albo MT32 przez audio_backend.h) - wczytanie .mid i
+// przygotowanie silnika. Wywolane bez mutexa (ladowanie VSCO/SF2 trwa
+// sekundy); pod mutexem tylko commit. Zwraca 1 = utwor wystartowal.
 static int play_midi_track(int track, const char *mpath, int loop) {
   std::vector<unsigned char> data = read_file(mpath);
   if (data.empty()) {
     fprintf(stderr, "PORT: nie mozna wczytac '%s'\n", mpath);
     return 0;
   }
-  const char *vsco = POL_VscoDir();
-  if (!vsco[0]) {
-    fprintf(stderr, "PORT: sfizz: nie znaleziono katalogu soundfontow VSCO "
-                    "(vsco/ albo $POLANIE_VSCO) - .mid nie wystartuje\n");
+  // bank silnika: sfizz -> katalog VSCO; MT32 -> sciezka *GM.sf2
+  const char *bank = "";
+  const char *nazwa_toru = "sfizz";
+  if (audio_type == POL_AUDIO_MT32) {
+    const char *sf2p = POL_Mt32Sf2Path();
+    if (!sf2p[0]) {
+      fprintf(stderr, "PORT: mt32: nie znaleziono soundfontu MT32 "
+                      "(assets/soundfont/*GM.sf2 albo $POLANIE_MT32SF2) - .mid "
+                      "nie wystartuje\n");
+      return 0;
+    }
+    bank = sf2p;
+    nazwa_toru = "mt32";
+  } else {
+    const char *vsco = POL_VscoDir();
+    if (!vsco[0]) {
+      fprintf(stderr, "PORT: sfizz: nie znaleziono katalogu soundfontow VSCO "
+                      "(vsco/ albo $POLANIE_VSCO) - .mid nie wystartuje\n");
+      return 0;
+    }
+    bank = vsco;
+  }
+  POL_AudioBackend *be = midi_backend.get();
+  if (!be) {
+    fprintf(stderr, "PORT: backend MIDI nie utworzony (--audioType?)\n");
     return 0;
   }
-  if (POL_SfzEngineInit((float)MIX_FREQ))
+  if (be->init((float)MIX_FREQ))
     return 0;
-  int regions =
-      POL_SfzEnginePrepare(data.data(), data.size(), vsco, mpath);
+  int regions = be->prepare(data.data(), data.size(), bank, mpath);
   if (regions < 0)
     return 0;
   SDL_LockMutex(mx);
-  POL_SfzEngineSetGain(vol_gain(music_vol)); // wspolna skala glosnosci muzyki
-  POL_SfzEngineCommit(loop);
+  be->setGain(vol_gain(music_vol)); // wspolna skala glosnosci muzyki
+  be->commit(loop);
+  music_backend = be;
   music_active = 1;
   cur_cd = track;
   SDL_UnlockMutex(mx);
-  printf("PORT: muzyka: utwor %d -> %s (sfizz, %d regionow)%s\n", track, mpath,
-         regions, loop ? " (loop)" : "");
+  printf("PORT: muzyka: utwor %d -> %s (%s, %d%s)%s\n", track, mpath,
+         nazwa_toru, regions,
+         audio_type == POL_AUDIO_MT32 ? " kanalow" : " regionow",
+         loop ? " (loop)" : "");
   return 1;
 }
 
@@ -432,15 +468,45 @@ int POL_MusicPlay(int track) {
   const TrackMap *tm = find_track(track);
   if (!tm)
     return 0;
-  // PORT: routing toru (auto/.mid -> sfizz, inaczej S3M). Wymuszony sfz nie
-  // ma fallbacku (jawnie brakuje); wymuszony s3m pomija .mid w calosci.
+  // PORT: routing toru (auto/.mid -> sfizz lub mt32 wg --audioType, inaczej
+  // S3M). Wymuszony sfz/mt32 nie ma fallbacku (jawnie brakuje); wymuszony s3m
+  // pomija .mid w calosci. Tor MIDI obsługuje jeden backend (audio_backend.h).
   if (audio_type != POL_AUDIO_S3M) {
     const MidiTrackMap *mm = find_midi_track(track);
     if (mm) {
       char mpath[1100];
+      // PORT: --audioType=mt32: NAJPIERW gotowe WAV ("zamiast midi leci wav
+      // jako muzyka") — nie wymaga nawet istnienia .mid (tor WAV jest
+      // samodzielny, eksport scripts/audio/); potem .mid + SF2 jak dotad.
+      if (audio_type == POL_AUDIO_MT32) {
+        const char *wavdir = POL_Mt32WavDir();
+        if (wavdir[0]) {
+          char wav[1300];
+          // mapa ini (mt32-wav-map.ini, opcjonalna) przepisuje numer utworu
+          // na dowolna sciezke WAV; brak wpisu -> domyslne
+          // GRAF_<modul>.mt32.wav (module wg kTrackMap)
+          POL_Mt32WavMapTrack(track, tm->module, wav, sizeof(wav));
+          if (file_exists(wav)) {
+            if (play_wav_track(track, wav, tm->loop))
+              return 1;
+            fprintf(stderr, "PORT: --audioType=mt32: WAV '%s' nie "
+                            "wystartowal\n",
+                    wav);
+            return 0;
+          }
+          fprintf(stderr, "PORT: mt32: brak WAV '%s' - fallback do MIDI\n",
+                  wav);
+        }
+      }
       if (POL_MidiFindFile(mm->dir, mm->needle, mpath, sizeof(mpath))) {
         if (play_midi_track(track, mpath, mm->loop))
           return 1;
+        if (audio_type == POL_AUDIO_MT32) {
+          fprintf(stderr, "PORT: --audioType=mt32: wczytanie '%s' nie powiodlo "
+                          "sie\n",
+                  mpath);
+          return 0;
+        }
         if (audio_type == POL_AUDIO_SFZ) {
           fprintf(stderr, "PORT: --audioType=sfz: wczytanie '%s' nie powiodlo "
                           "sie\n",
@@ -450,6 +516,11 @@ int POL_MusicPlay(int track) {
         fprintf(stderr, "PORT: tor MIDI nieudany dla utworu %d - fallback S3M "
                         "(GRAF_%03d)\n",
                 track, tm->module);
+      } else if (audio_type == POL_AUDIO_MT32) {
+        fprintf(stderr, "PORT: --audioType=mt32: brak pliku .mid dla utworu %d "
+                        "(podkatalog %s, wzorzec '%s')\n",
+                track, mm->dir, mm->needle);
+        return 0;
       } else if (audio_type == POL_AUDIO_SFZ) {
         fprintf(stderr, "PORT: --audioType=sfz: brak pliku .mid dla utworu %d "
                         "(podkatalog %s, wzorzec '%s')\n",
@@ -460,6 +531,11 @@ int POL_MusicPlay(int track) {
                         "%s) - gra S3M\n",
                 track, mm->needle, mm->dir);
       }
+    } else if (audio_type == POL_AUDIO_MT32) {
+      fprintf(stderr, "PORT: --audioType=mt32: utwor %d nie ma przypisanego "
+                      ".mid (port/midi_map.h)\n",
+              track);
+      return 0;
     } else if (audio_type == POL_AUDIO_SFZ) {
       fprintf(stderr, "PORT: --audioType=sfz: utwor %d nie ma przypisanego "
                       ".mid (port/midi_map.h)\n",
@@ -467,7 +543,9 @@ int POL_MusicPlay(int track) {
       return 0;
     }
   }
-#ifdef POL_HAVE_OPENMPT
+  // tor S3M przez backend (s3m_backend.h): modul wczytywany w prepare(),
+  // zrodlo - jak dotad - ekstrakt potem surowa kopia danych (patrz
+  // music_path_for). Komunikaty bez zmian.
   std::string path = music_path_for(tm->module);
   if (path.empty()) {
     fprintf(stderr, "PORT: brak modulu S3M dla utworu %d (GRAF_%03d)\n", track,
@@ -479,45 +557,34 @@ int POL_MusicPlay(int track) {
     fprintf(stderr, "PORT: nie mozna wczytac '%s'\n", path.c_str());
     return 0;
   }
-  openmpt_module *m = openmpt_module_create_from_memory(
-      data.data(), data.size(), openmpt_log_func_silent, NULL, NULL);
-  if (!m) {
+  if (!s3m_backend)
+    s3m_backend.reset(new S3mBackend());
+  if (s3m_backend->init((float)MIX_FREQ))
+    return 0;
+  int r3 = s3m_backend->prepare(data.data(), data.size(), "", path.c_str());
+  if (r3 == -2)
+    return 0; // brak libopenmpt (backend wypisal komunikat, jak dotad)
+  if (r3 < 0) {
     fprintf(stderr, "PORT: openmpt nie czyta '%s'\n", path.c_str());
     return 0;
   }
-  openmpt_module_set_render_param(m, OPENMPT_MODULE_RENDER_MASTERGAIN_MILLIBEL,
-                                  vol_millibel(music_vol));
   SDL_LockMutex(mx);
-  if (mod)
-    openmpt_module_destroy(mod);
-  mod = m;
+  s3m_backend->setGain(vol_gain(music_vol)); // jak dawne set_render_param(...)
+  s3m_backend->commit(tm->loop);
+  music_backend = s3m_backend.get();
   music_active = 1;
-  music_loop = tm->loop;
   cur_cd = track;
   SDL_UnlockMutex(mx);
   printf("PORT: muzyka: utwor %d -> %s%s\n", track, path.c_str(),
          tm->loop ? " (loop)" : "");
   return 1;
-#else
-  if (!openmpt_missing_logged) {
-    openmpt_missing_logged = 1;
-    fprintf(stderr, "PORT: libopenmpt brak - muzyka S3M wylaczona\n");
-  }
-  (void)track;
-  return 0;
-#endif
 }
 
 int POL_MusicStop(void) {
   SDL_LockMutex(mx);
   music_active = 0;
-  POL_SfzEngineStop(); // PORT: tor MIDI+sfizz (pod mx)
-#ifdef POL_HAVE_OPENMPT
-  if (mod) {
-    openmpt_module_destroy(mod);
-    mod = NULL;
-  }
-#endif
+  if (music_backend)
+    music_backend->stop(); // PORT: przez backend (sfizz|mt32|openmpt, pod mx)
   SDL_UnlockMutex(mx);
   return 0;
 }
@@ -538,13 +605,11 @@ void POL_MusicSetVolume(int v) {
     v = 5;
   music_vol = v;
   SDL_LockMutex(mx);
-  // PORT: tor MIDI+sfizz wspoldzieli skale glosnosci muzyki (0-5)
-  POL_SfzEngineSetGain(vol_gain(v));
-#ifdef POL_HAVE_OPENMPT
-  if (mod)
-    openmpt_module_set_render_param(
-        mod, OPENMPT_MODULE_RENDER_MASTERGAIN_MILLIBEL, vol_millibel(v));
-#endif
+  // PORT: wspolna skala glosnosci muzyki (0-5) przez backends (sfizz|mt32|S3M)
+  if (midi_backend)
+    midi_backend->setGain(vol_gain(v));
+  if (s3m_backend)
+    s3m_backend->setGain(vol_gain(v));
   SDL_UnlockMutex(mx);
 }
 
