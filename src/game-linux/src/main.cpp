@@ -83,8 +83,8 @@ int main(int argc, char **argv) {
       POL_SetAudioType(t);
     } else if (t == -2) {
       fprintf(stderr,
-              "PORT: bledna wartosc '%s' (uzycie: --audioType=s3m|sfz|auto; "
-              "domyslnie s3m)\n",
+              "PORT: bledna wartosc '%s' (uzycie: --audioType=s3m|sfz|mt32|"
+              "auto; domyslnie s3m)\n",
               argv[i]);
       return 1;
     }

@@ -156,16 +156,30 @@ void Mouse::ReadMouse13h() {
   }
 }
 
-void Mouse::TMoveCursor(int x, int y) { /* bez sensu w SDL (tryb tekstowy) */ }
+void Mouse::TMoveCursor(int x, int y) {
+  // PORT: bez sensu w SDL (tryb tekstowy)
+  (void)x;
+  (void)y;
+}
 
 void Mouse::GMoveCursor(int x, int y) {
   // PORT: warp kursora do pozycji w koordynatach int 33h (640x200)
   POL_WarpMouse640(x, y);
 }
 
-void Mouse::TMWindow(int x1, int y1, int x2, int y2) {}
+void Mouse::TMWindow(int x1, int y1, int x2, int y2) {
+  (void)x1;
+  (void)y1;
+  (void)x2;
+  (void)y2;
+}
 
-void Mouse::GMWindow(int x1, int y1, int x2, int y2) {}
+void Mouse::GMWindow(int x1, int y1, int x2, int y2) {
+  (void)x1;
+  (void)y1;
+  (void)x2;
+  (void)y2;
+}
 
 // Przesuniecie poziome i pionowe
 void Mouse::TMCounter(int &dx, int &dy) {
