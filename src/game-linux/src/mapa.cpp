@@ -51,7 +51,7 @@ extern int level, diff;
 extern char prowintion[25];
 extern char prowintionA[25];
 extern char placeN[MaxX][MaxY];
-extern volatile int licznik; // PORT: volatile - pisany z callbacku zegara
+extern volatile long long licznik; // PORT: int64 - czas gry/czas bitwy
 extern char *Mysz[13], *buttons[16];
 ////////////funkcje//////////////////////////////
 void NextConquest(void);

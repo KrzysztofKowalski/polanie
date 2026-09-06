@@ -33,12 +33,13 @@ int MENEGERDMA::Jest_SB = 0;
 
 // PORT: zegar 18.2 Hz dla calej gry (w oryginale NewTime() na przerwaniu 8)
 // PORT: licznik pisze watek timera SDL, czyta petla gry - w praktyce 18 Hz,
-// int 32-bit; w oryginale pisalo ISR int 8h (ta sama semantyka).
+// int64 - publikowany czas gry nie bedzie sie zawijal przez setki lat
+// (w oryginale ISR int 8h inkrementowala te sama zmienna).
 // PORT: volatile - pisany z callbacku SDL_AddTimer (pol_tick_cb nizej),
 // czytany z petli gry (battle.cpp) bez zadnego locka; bez volatile
 // kompilator moglby cachowac odczyty i petla nigdy nie zobaczylaby
 // podbicia.
-volatile int licznik = 0;
+volatile long long licznik = 0;
 
 static SDL_TimerID pol_timer = 0;
 

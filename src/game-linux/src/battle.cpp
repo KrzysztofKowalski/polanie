@@ -46,16 +46,21 @@ static int POL_RepairDbg(void) {
 //========Zmienne=================================
 
 char FileName[4][12] = {{"save.001"}, {"save.002"}, {"save.003"}, {"save.004"}};
-int place[MaxX][MaxY];
+long long place[MaxX][MaxY]; // PORT: int64 - trzyma zakodowane nr jednostek
 char placeN[MaxX][MaxY];
 int attack[MaxX][MaxY];
 extern int track;
 char endL;
-int drzewa0;
+// PORT: drzewa/drzewa0 na int64 - przy zwiekszeniu MaxMapSize liczba
+// drzew moze potrzebowac wiecej niz 31 bitow
+long long drzewa0;
 int musik = 1;
 int debug = 0;
 int kody = 0;
-int scrollTimer = 0;
+long long scrollTimer = 0; // PORT: int64 - wartosci zegara licznik (int64)
+// PORT: int zamiast char - MapY to liczba wierszy mini-mapy (atak 10-11
+// na MapY < 64), nie maksymalna wspolrzedna mapy (ta stoi w mapY)
+int MapY = 1;
 struct EditStr {
   int mode; // 0-tereny(skaly,woda,droga,sucha ziemia,palisada),
             // 1-gadgety,2-drzewa, 3-postacie, 4-budynki, 5-rodzaje decyzji i
@@ -87,7 +92,8 @@ int kanal;
 
 int PlaceUsed = 0;
 int diff = 0;
-int master = 0, drzewa;
+int master = 0;
+long long drzewa; // PORT: int64 - licznik drzew palisad (768+indeks w place[])
 int color1, color2 = Blue;
 // PORT: int zamiast char - indeksy placeG[...] (clang -Wchar-subscripts,
 // wartosci < MaxX/MaxY; semantyka bez zmian, cecha Watcomu)
@@ -116,10 +122,14 @@ char zaznaczanie = 0, grupa = 0;
 int rx1, rx2, ry1, ry2;
 struct Command Cmd[2];
 class Castle castle[2];
+// PORT: rzeczywisty rozmiar mapy biezacego poziomu; domyslnie zapas na
+// najwieksza mape, wlasciwy rozmiar ustawia glowa poziomu w InitBattle.
+// int64 (zgodnie z dyrektywa: mapa ogromna - rozmiar to liczba komorek,
+// nisz nie robi ani 16-, ani 31-bitowy sufit)
+long long mapX = MaxMapSize, mapY = MaxMapSize;
 int mouseDisabled = 0, mouseCommand = 1;
 int quitLevel = 0;
 char dzwiek = 1, mowa = 1;
-char MapY = 1;
 int mouseP = 0;
 int mouseCounter, mouseMode = 0;
 int Map = 0;
@@ -144,7 +154,7 @@ struct Plansza {
   char next;
 } pl;
 extern struct MMessage Msg;
-int ScreenX = 3, ScreenY = 1;
+long long ScreenX = 3, ScreenY = 1; // PORT: int64 - wspolrzedne okna mapy
 
 //---dane dla modulu decyzyjnego---------------------
 struct Mem {
@@ -163,8 +173,8 @@ struct Mem {
   int atak;                 // nr ataku
   class Castle *c;          // wskaznik na zamek
 } mem;
-int xpastw;
-int ypastw;
+long long xpastw; // PORT: int64 - wspolrzedna mapy
+long long ypastw;
 
 //---------------------------------------------------
 struct SSelected {
@@ -175,7 +185,9 @@ struct SSelected {
 } select, posT[10] = {{2, 0, 0, 0}, {2, 0, 0, 0}, {2, 0, 0, 0}, {2, 0, 0, 0},
                       {2, 0, 0, 0}, {2, 0, 0, 0}, {2, 0, 0, 0}, {2, 0, 0, 0},
                       {2, 0, 0, 0}, {2, 0, 0, 0}};
-char posTT[10][10][2];
+// PORT: int zamiast char - posTT trzyma indeks budynku (do 65535) lub
+// znacznik zamku MaxBuildings (stare 20) - char by tego nie zmiescil
+int posTT[10][10][2];
 //------------------------------------
 char *guzik[3], *lancuch[2];
 
@@ -184,7 +196,7 @@ char *guzik[3], *lancuch[2];
 int quit = 0; // PORT: bylo "extern int quit = 0" - extern przy definicji
               // z inicjalizatorem to blad w C++ (clang -Wextern-initializer)
 extern int level;
-extern volatile int licznik; // PORT: volatile - pisany z callbacku zegara
+extern volatile long long licznik; // PORT: volatile - pisany z callbacku zegara
 extern char *picture[MaxPictures], *missiles[6][3][3], *tlo, *Mysz[13];
 extern char *movers[5][10][3][3], *ramka[4]; // faza:typ:dx:dy
 extern char *buttons[16];
@@ -202,7 +214,6 @@ extern class MENEGERDMA SND;
 
 class Mover1 *selectM;
 class Building *selectB;
-
 //===========Deklaracje funkcji=======================
 
 void DispatchEvent(void);
@@ -223,9 +234,13 @@ void ZaznaczObiekt(int, int, int, int, int mode);
 
 //===========Deklaracje funkcji zewnetrznych===========
 // mover1
-extern int Who(int);
+extern int Who(long long);
 extern void FindEnemy(int x, int y, int *xe, int *ye, int *distance);
-extern Mover1 *Pointer(int nr);
+extern Mover1 *Pointer(long long nr);
+// PORT: BFS - wystarczajaca kolejka dla biezacej mapy (mover1.cpp)
+extern void POL_KolejkaInit(long long mapArea);
+// PORT: migracja nr starego save'u do nowego kodowania (mover1.cpp)
+extern int POL_NrToNew(long long v);
 extern int Udata[13][7];
 extern int dmagic[15]; // PORT: maksimum many wg doswiadczenia (mover1.cpp)
 // world
@@ -259,7 +274,8 @@ extern "C" int POL_QuitRequested(void);
 // PORT: portalny sen dla petli czekajacych na tik 18.2 Hz (port/port.h,
 // implementacja port/port_sdl.cpp obok POL_Delay)
 extern "C" void POL_WaitMs(int ms);
-int licznik2 = 0;
+// PORT: licznik2 wraz z licznikiem na int64 (tablica SETUP.INI/czas gry)
+long long licznik2 = 0;
 //=========== PORT: podglad zaznaczonego obiektu (feature wersji CD) ===========
 // PORT: W wersji CD w prawym gornym rogu panelu bitwy jest wytloczone okienko
 // (278,7)-(310,27), w ktorym pokazywano portret zaznaczonej jednostki albo
@@ -553,13 +569,14 @@ void Battle(int type) // 1-single start   0-rs   2-loaded
           if (pl.endType == 1 && placeN[pl.x0][pl.y0] && pl.x0) {
             castle[0].m[1].Init(pl.typ, pl.x0, pl.y0, 0, 0);
             castle[0].m[1].SetIFF(1);
-            castle[0].m[1].SetNr(1 + 456);
+            castle[0].m[1].SetNr(NR_ENC | NR_CASTLE | (1 << 4));
             castle[0].m[1].Show();
             pl.x0 = 0;
             placeN[pl.x0][pl.y0] = 1;
           }
-          if (placeG[pl.xp][pl.yp] == 300 && place[pl.xp][pl.yp] > 256 &&
-              place[pl.xp][pl.yp] < 768) // przemiana
+          // PORT: maskowo - przemiana obiektu zakodowanego nr (nie drzewo)
+          if (placeG[pl.xp][pl.yp] == 300 && POL_NRENC(place[pl.xp][pl.yp]))
+            // przemiana
           {
             Mover1 *mm = Pointer(place[pl.xp][pl.yp]);
             if (mm != NULL) {
@@ -605,7 +622,7 @@ void Battle(int type) // 1-single start   0-rs   2-loaded
               }
               if (select.co == 0) {
                 if (selectB->exist == 1)
-                  comm = castle[0].milk;
+                  comm = (int)castle[0].milk; // PORT: UI int
                 ShowPanel(select.IFF, selectB->type + 19, comm,
                           selectB->maxfood - selectB->food, 0);
               }
@@ -624,7 +641,7 @@ void Battle(int type) // 1-single start   0-rs   2-loaded
               if (POL_BattleDbg())
                 fprintf(stderr,
                         "PORT: BATTLE: bramka SND: dzwiek=%d X=%d Y=%d "
-                        "(ScreenX=%d ScreenY=%d)\n",
+                        "(ScreenX=%lld ScreenY=%lld)\n",
                         (int)Msg.dzwiek, (int)Msg.X, (int)Msg.Y, ScreenX,
                         ScreenY);
               if (Msg.X < ScreenX + 22 && Msg.Y < ScreenY + 18 &&
@@ -709,10 +726,8 @@ void Battle(int type) // 1-single start   0-rs   2-loaded
         } while (licznik - licznik2 < speedTicks);
         showAll = 1;
         //<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-        if (licznik > 10000) {
-          licznik = 0;
-          scrollTimer = licznik;
-        }
+        // PORT: likwidacja reseta licznika z scrollTimer (2^63 przy 600 Hz
+        // to setki lat - reset niepotrzebny, a int64 jest monotoniczny)
         licznik2 = licznik;
 
         // PORT: dlawiony log tetna petli zewnetrznej bitwy (co 18 obiegow,
@@ -721,7 +736,7 @@ void Battle(int type) // 1-single start   0-rs   2-loaded
         {
           static int tickdbg = 0;
           if (POL_BattleDbg() && (++tickdbg % 18 == 0))
-            fprintf(stderr, "PORT: BATTLE: tick licznik=%d licznik2=%d "
+            fprintf(stderr, "PORT: BATTLE: tick licznik=%lld licznik2=%lld "
                             "speed=%d decisionFaza=%d\n",
                     licznik, licznik2, speed, (int)decisionFaza);
         }
@@ -734,17 +749,17 @@ void Battle(int type) // 1-single start   0-rs   2-loaded
         {
           static int repdbg = 0;
           if (POL_RepairDbg() && (++repdbg % 36 == 0)) {
-            for (int bi = 0; bi < 20; bi++)
+            for (int bi = 0; bi < MaxBuildings; bi++)
               if (castle[0].b[bi].exist)
                 fprintf(stderr, "PORT: BATTLE: budynek b[%d] type=%d exist=%d "
-                                "hp=%d/%d poz=(%d,%d)\n",
+                                "hp=%d/%d poz=(%lld,%lld)\n",
                         bi, castle[0].b[bi].type, castle[0].b[bi].exist,
                         castle[0].b[bi].hp, castle[0].b[bi].maxhp,
                         castle[0].b[bi].x, castle[0].b[bi].y);
             {
               int sel_post = -1, sel_bud = -1;
               Mover1 *sm = NULL;
-              if (select.co == 1 && select.nrb < 20) {
+              if (select.co == 1 && select.nrb < MaxBuildings) {
                 sm = &castle[0].b[select.nrb].m[select.nrm];
                 sel_bud = select.nrb;
                 sel_post = select.nrm;
@@ -754,8 +769,9 @@ void Battle(int type) // 1-single start   0-rs   2-loaded
               }
               if (sm && sm->exist)
                 fprintf(stderr, "PORT: BATTLE: jednostka (b=%d m=%d) cmd=%d "
-                                "cmdN=%d poz=(%d,%d) cel=(%d,%d) xm=(%d,%d) "
-                                "inattack=%d inmove=%d delay=%d hp=%d/%d\n",
+                                "cmdN=%d poz=(%lld,%lld) cel=(%lld,%lld) "
+                                "xm=(%lld,%lld) inattack=%d inmove=%d "
+                                "delay=%d hp=%d/%d\n",
                         sel_bud, sel_post, sm->command, sm->commandN, sm->x,
                         sm->y, sm->xe, sm->ye, sm->xm, sm->ym, sm->inattack,
                         sm->inmove, sm->delay, sm->hp, sm->maxhp);
@@ -875,15 +891,15 @@ void ShowSelected() {
               b = 20;
               b = 4;
               int kkk = 0;
-              for (int j = 0; j < 20; j++)
-                for (i = 0; i < 20; i++)
+              for (int j = 0; j < MaxBuildings; j++)
+                for (i = 0; i < 6; i++)
                   if (castle[0].b[j].m[i].wybrany &&
                       castle[0].b[j].m[i].exist == 1) {
                     p = i;
                     b = j;
                     kkk++;
                   }
-              if (b < 20) {
+              if (b < MaxBuildings) {
                 // PORT: Watcom mial leaky for-scope - po petlach j==20, i==20
                 // (warunki koncowe; petle nie maja break), wiec oryginal
                 // przypisywal TU ZAWSZE &castle[0].b[20].m[20] - adres za
@@ -1043,13 +1059,14 @@ void ShowSelected() {
       }
     }
     if (select.co == 1) {
+      // PORT: znacznik jednostki zamku = MaxBuildings (stare nrb == 20)
       if (pl.endType == 1 && !select.IFF && select.nrm == 1 &&
-          select.nrb == 20) {
+          select.nrb == MaxBuildings) {
         OutText13h(100, 30, pl.name, 1);
         OutText13h(101, 30, pl.name, FontColor);
       }
       if (pl.endType == 4 && select.IFF == 1 && select.nrm == 1 &&
-          select.nrb == 20) {
+          select.nrb == MaxBuildings) {
         OutText13h(100, 30, pl.name, 1);
         OutText13h(101, 30, pl.name, LightRed);
       }
@@ -1063,35 +1080,26 @@ void ShowSelected() {
 
     ///////////// wypisz mleko /////////////////////////////////
     PutImage13h(299, 9, drewno[2], 0); //???
-    // PORT: skala paska wzgledna do maxmilk - pelny magazyn = szczyt paska.
-    // Stala skala 0-1410 pol/zep.10 powodowala, ze limit z danych mapy
-    // (pl.maxmilk=(M-48)*200+50, battle.cpp:2547) wypadal na ~80-90% paska
-    // i mleko nie dobijalo do 100%. Teraz wysokosc = milk*141/maxmilk
-    // (maxmilk z danych mapy; limit u gory - znacznik LightRed na szczycie).
-    // Bez limitu (maxmilk=0) zostaje stara skala milk/10.
-    // PORT: retest 2026-09-06 - blok mleka NA KONCU malowania panelu: pod
-    // stara pozycja (przed ShowBattleMap) pozniejsze malowania (podglad
-    // okienka, mapa, teksty) zaslanialy lewa czesc ramki (x299..309 ramka
-    // drewno[2] z zapisu tla), wypełnienie bylo widoczne tylko w oknie
-    // 310..313. Teraz nic po bloku nie maluje tego obszaru az do myszki.
-    int pol_max = castle[master].maxmilk; // 0 = bez limitu (bez znacznika)
-    int pol_milk = castle[master].milk;
-    if (pol_max > 0) {
-      if (pol_milk > pol_max)
-        pol_milk = pol_max;
-      int pol_h = pol_milk * 141 / pol_max;
-      if (pol_h > 141)
-        pol_h = 141;
-      if (pol_h)
-        Bar13h(299, 150 - pol_h, 314, 150, 255);
-      Bar13h(299, 9, 314, 10, LightRed); // znacznik limitu (szczyt paska)
-    } else {
-      if (pol_milk > 1410)
-        pol_milk = 1410;
-      pol_milk /= 10;
-      if (pol_milk)
-        Bar13h(299, 150 - pol_milk, 314, 150, 255);
-    }
+    // PORT: skala ORYGINALNA (game/battle.cpp:621-634) - stala 0-1410
+    // (milk/10, max 141 px) i kreska limitu na WLASNEJ wysokosci
+    // (150-maxmilk/10; przy maxmilk>1260 kreski brak, jak w oryginale).
+    // Wzgledna skala (pelny magazyn = szczyt, kreska zawsze u gory) skasowana
+    // po retescie: user "mleko wybija dalej - zepsute skalowanie" - pelna
+    // ramka wygladala jak przepelnienie a znacznik gubil sie pod okienkiem
+    // portretu. Blok zostaje TU (koniec malowania panelu, fix z 381fac9).
+    // PORT: int64 - mleko z zamku
+    long long pol_mlk = castle[master].milk;
+    if (pol_mlk > 1410)
+      pol_mlk = 1410;
+    pol_mlk /= 10;
+    if (pol_mlk)
+      Bar13h(299, 150 - (int)pol_mlk, 314, 150, 255);
+    pol_mlk = castle[master].maxmilk;
+    if (pol_mlk > 1260)
+      pol_mlk = 0;
+    pol_mlk /= 10;
+    if (pol_mlk)
+      Bar13h(299, 150 - (int)pol_mlk, 314, 151 - (int)pol_mlk, LightRed);
 
     // PORT: podglad zaznaczonego obiektu w okienku panelu (feature wersji CD);
     // po pasku mleka, bo jego ramka drewno[2] (299,9) przykrywa prawy skraj
@@ -1117,7 +1125,11 @@ void ShowSelected() {
       if (selectM->type && place[x][y] > 255) {
         M = 5;
       } // zaznacz??????
-      if (selectM->type && place[x][y] > 511) {
+      // PORT: maskowe progi nr (stare zakresy 256-767 nie obsluguja int64):
+      // atak = zakodowany nr wroga (IFF 2) albo drzewo
+      if (selectM->type &&
+          (POL_TREE(place[x][y]) ||
+           (POL_NRENC(place[x][y]) && NR_IFF(place[x][y]) == 2))) {
         M = 3;
       } // atakuj
       if (selectM->type == 10 && M == 3) {
@@ -1128,29 +1140,30 @@ void ShowSelected() {
           M = 12;
         } // nie atakuj nikogo oprocz krowy
       }
-      if ((selectM->type != 4 && selectM->type != 1) && place[x][y] > 768) {
+      if ((selectM->type != 4 && selectM->type != 1) && POL_TREE(place[x][y])) {
         M = 12;
       } // nie drzewo
-      if ((selectM->type == 1) && place[x][y] > 768 && placeG[x][y] < 119 &&
+      if ((selectM->type == 1) && POL_TREE(place[x][y]) && placeG[x][y] < 119 &&
           placeG[x][y] > 112) {
         M = 12;
       } // nie drzewo
 
-      if (!selectM->type && place[x][y] < 512 && placeG[x][y] > 157 &&
-          placeG[x][y] < 166)
+      if (!selectM->type &&
+          (place[x][y] < 512 ||
+           (POL_NRENC(place[x][y]) && NR_IFF(place[x][y]) == 1)) &&
+          placeG[x][y] > 157 && placeG[x][y] < 166)
         M = 2; // krowa idz do naszej obory
       if (!placeN[x][y])
         M = 2; // idz
       if (!mouseMode)
         M = 1; // strzalka
-      if (!mouseMode && place[x][y] > 255 && place[x][y] < 768 &&
-          placeN[x][y]) {
+      if (!mouseMode && POL_NRENC(place[x][y]) && placeN[x][y]) {
         M = 5;
       } // nasz
       if ((selectM->type == 1) && (select.co == 1) &&
           (place[x][y] == 2 || placeG[x][y] == 277 ||
-           (place[x][y] > 255 && place[x][y] < 511 && placeG[x][y] > 126 &&
-            placeG[x][y] < 256)))
+           (POL_NRENC(place[x][y]) && NR_IFF(place[x][y]) == 1 &&
+            placeG[x][y] > 126 && placeG[x][y] < 256)))
         M = 13; // robota
       if ((selectM->type == 3) && mouseCommand == 13)
         M = 16;
@@ -1159,14 +1172,14 @@ void ShowSelected() {
 
     } else // nie nasz
     {
-      if (place[x][y] > 255 && place[x][y] < 768)
+      if (POL_NRENC(place[x][y]))
         M = 5;
     }
   }
   // jezeli nikt nie zaznaczony
 
   if (select.IFF >= 2)
-    if (place[x][y] > 255 && place[x][y] < 768)
+    if (POL_NRENC(place[x][y]))
       M = 5; // zaznacz
 
   int k = mouse.Button;
@@ -1187,13 +1200,13 @@ void ShowSelected() {
   if (mouse.Y > 192) {
     mouse.Y = 192;
     M = 9;
-    if (ScreenY == MaxY - 14)
+    if (ScreenY == mapY - 14)
       M = 12;
   }
   if (mouse.Y > 192 - 7 && M == 1) {
     mouse.Y = 192;
     M = 9;
-    if (ScreenY == MaxY - 14)
+    if (ScreenY == mapY - 14)
       M = 12;
   }
   if (mouse.Y < 8) {
@@ -1211,7 +1224,7 @@ void ShowSelected() {
   if (mouse.X > 306) {
     mouse.X = 311;
     M = 11;
-    if (ScreenX == MaxX - 17)
+    if (ScreenX == mapX - 17)
       M = 12;
   }
 
@@ -1245,7 +1258,8 @@ void ShowSelected() {
         if (placeG[x + i][y + j] > 30 && placeG[x + i][y + j] < 54)
           dr = 1;
       }
-    if (y > 62 || x > 62)
+    // PORT: granica budowy przy mapach wiekszych niz 66x66
+    if (y > mapY - 4 || x > mapX - 4)
       dr = 0;
     int c = 0;
     if (mouseCommand == 3) {
@@ -1357,7 +1371,7 @@ void Scroll() {
   if (scrollTimer + scrollTicks > licznik)
     return;
 
-  scrollTimer = licznik;
+  scrollTimer = (int)licznik; // PORT: int64 zegar -> int UI (reszta int32)
   // if(skroller1>skroller){return;}
 
   if (mouse.X < 10) {
@@ -1373,8 +1387,8 @@ void Scroll() {
   }
   if (mouse.X > 310) {
     ScreenX++;
-    if (ScreenX > MaxX - 17) {
-      ScreenX = MaxX - 17;
+    if (ScreenX > mapX - 17) {
+      ScreenX = mapX - 17;
       return;
     }
     castle[0].Prepare(ScreenX, ScreenY, 0);
@@ -1396,8 +1410,8 @@ void Scroll() {
   }
   if (mouse.Y > 192 - 7) {
     ScreenY++;
-    if (ScreenY > MaxY - 14) {
-      ScreenY = MaxY - 14;
+    if (ScreenY > mapY - 14) {
+      ScreenY = mapY - 14;
       return;
     }
     castle[0].Prepare(ScreenX, ScreenY, 0);
@@ -1609,8 +1623,8 @@ void DispatchEvent() {
     }
     if (mouse.Key == 'W' && chat == 26) {
       chat = 100;
-      for (i = 0; i < MaxX; i++)
-        for (int j = 0; j < MaxX; j++)
+      for (i = 0; i < mapX; i++)
+        for (int j = 0; j < mapY; j++)
           if (!placeN[i][j])
             placeN[i][j] = 1;
       decisionFaza = 3;
@@ -1624,10 +1638,10 @@ void DispatchEvent() {
       !zaznaczanie && (mouseCommand < 2)) {
     ScreenX = mouse.X - 12 - 7;
     ScreenY = mouse.Y - 9 - 8;
-    if (ScreenX > MaxX - 17)
-      ScreenX = MaxX - 17;
-    if (ScreenY > MaxY - 14)
-      ScreenY = MaxY - 14;
+    if (ScreenX > mapX - 17)
+      ScreenX = mapX - 17;
+    if (ScreenY > mapY - 14)
+      ScreenY = mapY - 14;
     if (ScreenY < 1)
       ScreenY = 1;
     if (ScreenX < 1)
@@ -1692,8 +1706,8 @@ void DispatchEvent() {
     ScreenX++;
     if (mouse.Key)
       ScreenX++;
-    if (ScreenX > MaxX - 17)
-      ScreenX = MaxX - 17;
+    if (ScreenX > mapX - 17)
+      ScreenX = mapX - 17;
     castle[0].Prepare(ScreenX, ScreenY, 0);
     castle[1].Prepare(ScreenX, ScreenY, 0);
     RefreshScreen();
@@ -1714,8 +1728,8 @@ void DispatchEvent() {
     ScreenY++;
     if (mouse.Key)
       ScreenY++;
-    if (ScreenY > MaxY - 14)
-      ScreenY = MaxY - 14;
+    if (ScreenY > mapY - 14)
+      ScreenY = mapY - 14;
     castle[0].Prepare(ScreenX, ScreenY, 0);
     castle[1].Prepare(ScreenX, ScreenY, 0);
     RefreshScreen();
@@ -1795,7 +1809,7 @@ void DispatchEvent() {
       if (select.co == 1)
         ShowPanel(select.IFF, selectM->type, 1, selectM->magic, 0);
       if (select.co == 0)
-        ShowPanel(select.IFF, selectB->type + 19, castle[0].milk,
+        ShowPanel(select.IFF, selectB->type + 19, (int)castle[0].milk,
                   selectB->maxfood - selectB->food, 0);
     } else
       ShowPanel(0, 0, 0, 0, 0);
@@ -1850,9 +1864,10 @@ void DispatchEvent() {
     select.co = posT[pp].co;
     select.nrb = posT[pp].nrb;
     select.nrm = posT[pp].nrm;
-    if (select.co && select.nrb < 20)
+    // PORT: znacznik jednostki zamku = MaxBuildings (stare nrb == 20)
+    if (select.co && select.nrb < MaxBuildings)
       selectM = &castle[select.IFF].b[select.nrb].m[select.nrm];
-    if (select.co && select.nrb == 20)
+    if (select.co && select.nrb == MaxBuildings)
       selectM = &castle[select.IFF].m[select.nrm];
     if (!select.co)
       selectB = &castle[select.IFF].b[select.nrb];
@@ -1862,12 +1877,13 @@ void DispatchEvent() {
     // -Wchar-subscripts); wartosci 0-20, semantyka bez zmian (cecha Watcomu)
     int p, b, i;
     for (i = 0; i < 10; i++)
-      if (posTT[pp][i][0] || posTT[pp][i][1] < 20) {
+      // PORT: znacznik jednostki zamku = MaxBuildings (stare 20)
+      if (posTT[pp][i][0] || posTT[pp][i][1] < MaxBuildings) {
         if (i)
           grupa = 1;
         p = posTT[pp][i][0];
         b = posTT[pp][i][1];
-        if (b < 20)
+        if (b < MaxBuildings)
           castle[0].b[b].m[p].wybrany = 1;
         else
           castle[0].m[p].wybrany = 1;
@@ -1925,19 +1941,19 @@ void DispatchEvent() {
     posT[pp].nrm = select.nrm;
     int i, b, p;
     for (i = 0; i < 10; i++) {
-      posTT[pp][i][1] = 20;
+      posTT[pp][i][1] = MaxBuildings; // znacznik zamku (stare 20)
       posTT[pp][i][0] = 0;
     }
     p = 0;
     for (i = 1; i < MaxUnitsInCastle; i++)
       if (castle[0].m[i].wybrany) {
         posTT[pp][p][0] = i;
-        posTT[pp][p][1] = 20;
+        posTT[pp][p][1] = MaxBuildings; // znacznik zamku (stare 20)
         p++;
         if (p > 9)
           p = 9;
       }
-    for (b = 0; b < 20; b++)
+    for (b = 0; b < MaxBuildings; b++)
       for (i = 0; i < 6; i++)
         if (castle[0].b[b].m[i].wybrany) {
           posTT[pp][p][0] = i;
@@ -2034,7 +2050,7 @@ void DispatchEvent() {
           // show panel przelozony 3 linijki nizej
           if (mouseCommand == 0) // budowa goscia
           {
-            ShowPanel(select.IFF, selectB->type + 9, castle[0].milk,
+            ShowPanel(select.IFF, selectB->type + 9, (int)castle[0].milk,
                       selectB->maxfood - selectB->food, i + 1);
             mouseCounter = 10;
             Cmd[master].co = 0;
@@ -2063,7 +2079,9 @@ void DispatchEvent() {
     if (!select.IFF && select.co && mouseMode &&
         mouse.Button == 2) // zolnierz  nasz
     {
-      if (place[x][y] > 511)
+      // PORT: maskowe progi nr (stare zakresy 256-767 nie obsluguja int64)
+      if (POL_TREE(place[x][y]) ||
+          (POL_NRENC(place[x][y]) && NR_IFF(place[x][y]) == 2))
         mouseCommand = 11;
       if (!place[x][y]) {
         for (int ii = x - 1; ii < x + 2; ii++)
@@ -2080,22 +2098,26 @@ void DispatchEvent() {
           mouseCommand = 1;
         } // nie atakuj nikogo oprocz krowy
       }
-      if ((selectM->type != 4 && selectM->type != 1) && place[x][y] > 768)
+      if ((selectM->type != 4 && selectM->type != 1) && POL_TREE(place[x][y]))
         mouseCommand = 1;
-      if ((selectM->type == 1) && place[x][y] > 768 && placeG[x][y] > 112 &&
+      if ((selectM->type == 1) && POL_TREE(place[x][y]) && placeG[x][y] > 112 &&
           placeG[x][y] < 119)
         mouseCommand = 1; // drzewo zielona
-      if ((selectM->type != 1) && place[x][y] > 0x1000)
+      // PORT: 0x1000 dawalo odczyty martwe (drzewa <= 2767); dla glebokich
+      // drzew (indeks > 3328, tylko wielkie mapy) tez nie reperacji:
+      if ((selectM->type != 1) && POL_TREE(place[x][y]) && place[x][y] > 0x1000)
         mouseCommand = 1; // budowa reperacja
       if (!place[x][y] || !placeN[x][y])
         mouseCommand = 10; // idz
       if ((selectM->type == 1) && (select.co == 1) &&
           (placeG[x][y] == 277 || place[x][y] == 2 ||
-           (place[x][y] > 255 && place[x][y] < 511 && placeG[x][y] > 126 &&
-            placeG[x][y] < 256)))
+           (POL_NRENC(place[x][y]) && NR_IFF(place[x][y]) == 1 &&
+            placeG[x][y] > 126 && placeG[x][y] < 256)))
         mouseCommand = 12; // odbudowa
-      if (!selectM->type && place[x][y] < 512 && placeG[x][y] > 157 &&
-          placeG[x][y] < 166)
+      if (!selectM->type &&
+          (place[x][y] < 512 ||
+           (POL_NRENC(place[x][y]) && NR_IFF(place[x][y]) == 1)) &&
+          placeG[x][y] > 157 && placeG[x][y] < 166)
         mouseCommand = 10; // krowa idz do naszej obory
       if (place[x][y] && Map && mouse.MWindow(11, 8, 76, 74))
         mouseCommand = 10;
@@ -2244,15 +2266,16 @@ void DispatchEvent() {
       // stan budynku gracza pod celem (exist: 1=stoi, 2=ruina, 3/4=budowa)
       if (POL_RepairDbg()) {
         int pb = -1;
-        for (int bi = 0; bi < 20; bi++)
+        for (int bi = 0; bi < MaxBuildings; bi++)
           if (castle[0].b[bi].exist && x >= castle[0].b[bi].x &&
               x < castle[0].b[bi].x + 3 && y >= castle[0].b[bi].y &&
               y < castle[0].b[bi].y + 3)
             pb = bi;
         if (pb >= 0)
           fprintf(stderr, "PORT: BATTLE: rozkaz 8 (naprawa) b[%d] type=%d "
-                          "exist=%d hp=%d maxhp=%d poz=(%d,%d) cel=(%d,%d) "
-                          "place=%d placeG=%d placeN=%d nrm=%d nrb=%d "
+                          "exist=%d hp=%d maxhp=%d poz=(%lld,%lld) "
+                          "cel=(%d,%d) place=%lld placeG=%d placeN=%d "
+                          "nrm=%d nrb=%d "
                           "grupa=%d\n",
                   pb, castle[0].b[pb].type, castle[0].b[pb].exist,
                   castle[0].b[pb].hp, castle[0].b[pb].maxhp,
@@ -2260,7 +2283,7 @@ void DispatchEvent() {
                   placeG[x][y], placeN[x][y], select.nrm, select.nrb, grupa);
         else
           fprintf(stderr, "PORT: BATTLE: rozkaz 8 (naprawa) POZA budynkiem "
-                          "gracza: cel=(%d,%d) place=%d placeG=%d placeN=%d "
+                          "gracza: cel=(%d,%d) place=%lld placeG=%d placeN=%d "
                           "nrm=%d nrb=%d grupa=%d\n",
                   x, y, place[x][y], placeG[x][y], placeN[x][y], select.nrm,
                   select.nrb, grupa);
@@ -2273,11 +2296,14 @@ void DispatchEvent() {
       // i budynek uszkodzony - bez zmian.
       {
         class Building *pol_b = NULL;
-        int pol_p = place[x][y];
-        if (pol_p > 255 && pol_p < 768) {
-          int pol_side = (pol_p >> 8) - 1;
-          int pol_nrb = (pol_p & 0xff) / 10;
-          if (pol_side >= 0 && pol_side < 2 && pol_nrb >= 0 && pol_nrb < 20)
+        long long pol_p = place[x][y];
+        // PORT: maskowe rozpoznanie budynku z oplotu (stare IFF*256+Nr*10+off);
+        // osoby w budynku tez maja Nr = indeks budynku
+        if (POL_NRENC(pol_p) && !(pol_p & NR_CASTLE)) {
+          int pol_side = NR_IFF(pol_p) - 1;
+          long long pol_nrb = NR_BUILD(pol_p);
+          if (pol_side >= 0 && pol_side < 2 && pol_nrb >= 0 &&
+              pol_nrb < MaxBuildings)
             pol_b = &castle[pol_side].b[pol_nrb];
         }
         if (pol_b != NULL && pol_b->exist == 1 && pol_b->hp >= pol_b->maxhp) {
@@ -2370,7 +2396,8 @@ void DispatchEvent() {
           if ((placeG[x + i][y + j] > 126 && placeG[x + i][y + j] < 257))
             ok = 1;
         }
-      if (y > 62 || x > 62)
+      // PORT: granica mapy (stare 62 = 66-4; przy wiekszych mapach skala)
+      if (y > mapY - 4 || x > mapX - 4)
         ok = 1;
       if (ok)
         return; // musi stac na odkrytym miejscu i nie na moscie
@@ -2391,7 +2418,7 @@ void DispatchEvent() {
       Cmd[master].x = x + 2;
       Cmd[master].y = y + 2;
       mouseCommand = 1;
-      ShowPanel(select.IFF, selectB->type + 9, castle[0].milk,
+      ShowPanel(select.IFF, selectB->type + 9, (int)castle[0].milk,
                 selectB->maxfood - selectB->food, 0);
       // if(Msg.dzwiek<19){Msg.dzwiek=19;Msg.X=ScreenX;Msg.Y=ScreenY;}
       return;
@@ -2490,13 +2517,20 @@ void InitBattle(int level,
   for (int d1 = 0; d1 < 10; d1++)
     for (int d2 = 0; d2 < 10; d2++) {
       posTT[d1][d2][0] = 0;
-      posTT[d1][d2][1] = 20;
+      posTT[d1][d2][1] = MaxBuildings; // znacznik zamku (stare 20)
     }
   for (i = 0; i < 10; i++)
     posT[i].IFF = 2;
 
   if (!type) {
     drzewa = 1;
+    // PORT: stary format ASCII = 66x66 (fallback); nowy format moze nadpisac
+    // przez naglowek "X<4 cyfry>Y<4 cyfry>" w petli naglowka
+    mapX = 66;
+    mapY = 66;
+    // PORT: BFS - wspolna kolejka (dawne unsigned char[2000] nie miescila
+    // wspolrzednych >255); rozmiar od rzeczywistej mapy
+    POL_KolejkaInit(mapX * mapY);
     pl.nrp = 0;
     pl.haslo = 132;
     pl.next = 0;
@@ -2505,8 +2539,8 @@ void InitBattle(int level,
     pl.xp = 0;
     pl.yp = 0;
     pl.gen = 0;
-    for (i = 0; i < MaxX; i++)
-      for (j = 0; j < MaxY; j++) {
+    for (i = 0; i < mapX; i++)
+      for (j = 0; j < mapY; j++) {
         placeN[i][j] = 0;
         placeG[i][j] = 8;
         place[i][j] = 0;
@@ -2533,12 +2567,38 @@ void InitBattle(int level,
           exit(0);
         }
       } while (k != level);
-      for (j = 0; j < MaxY; j++) {
+      for (j = 0; j < mapY; j++) {
         do {
           z = getc(plikPlansz);
           if (z == '@') {
             Close13h();
             exit(0);
+          }
+          // PORT: rozmiar mapy - nowy naglowek "X1024Y1024!" (stary format nie
+          // ma rozmiaru: fallback mapX=mapY=66); wymagane dokladnie 4 cyfry
+          // (pojedyncze 'X' z nazwy poziomu nie moze nadpisywac rozmiaru)
+          if (z == 'X' || z == 'Y') {
+            int wym = 0, ile = 0, zn = z;
+            z = getc(plikPlansz);
+            while (ile < 4 && z >= '0' && z <= '9') {
+              wym = wym * 10 + z - '0';
+              ile++;
+              z = getc(plikPlansz);
+            }
+            if (ile != 4) {
+              // nie wyglada na naglowek rozmiaru (dawne pliki nie maja 'X'
+              // w naglowku; niedokladne 'X' ignorujemy - 4+ znaki zjedzone,
+              // nie ma na nie woltow w stalym formacie)
+            } else if (wym < 66 || wym > MaxMapSize) {
+              Close13h();
+              exit(0);
+            } else {
+              if (zn == 'X')
+                mapX = wym;
+              else
+                mapY = wym;
+              POL_KolejkaInit(mapX * mapY);
+            }
           }
           if (z == 'D') {
             z = getc(plikPlansz);
@@ -2588,7 +2648,7 @@ void InitBattle(int level,
         if (pl.endType == 4 && !p1)
           p1 = 1;
 
-        for (i = 0; i < MaxX; i++) {
+        for (i = 0; i < mapX; i++) {
           // if(p0>MaxUnitsInCastle-5)p0=MaxUnitsInCastle-5;
           // if(p1>MaxUnitsInCastle-5)p1=MaxUnitsInCastle-5;
           z = getc(plikPlansz);
@@ -2597,7 +2657,7 @@ void InitBattle(int level,
             exit(0);
           }
           place[i][j] = 0;
-          if (i == 0 || i == MaxX - 1 || j == 0 || j == MaxY - 1)
+          if (i == 0 || i == mapX - 1 || j == 0 || j == mapY - 1)
             place[i][j] = 10;
           placeG[i][j] = 8;
           if (z == '*') {
@@ -2610,7 +2670,7 @@ void InitBattle(int level,
               if (!p1)
                 p1++;
               castle[1].m[1].Init(pl.typ, i, j, 0, 5);
-              castle[1].m[1].SetNr(512 + 201);
+              castle[1].m[1].SetNr(NR_ENC | NR_CASTLE | (1 << 28) | (1 << 4));
               castle[1].m[1].SetIFF(2);
               castle[1].m[1].Show();
             }
@@ -2778,37 +2838,37 @@ void InitBattle(int level,
           if (z == '8')
             placeG[i][j] = 53;
           // ---------drzewa ---------------
-          if (z == 'A' && drzewa < 2000) {
+          if (z == 'A' && drzewa < 200000) {
             placeG[i][j] = 113;
             place[i][j] = 256 + 512 + drzewa;
             drzewa++;
           }
-          if (z == 'B' && drzewa < 2000) {
+          if (z == 'B' && drzewa < 200000) {
             placeG[i][j] = 114;
             place[i][j] = 256 + 512 + drzewa;
             drzewa++;
           }
-          if (z == 'C' && drzewa < 2000) {
+          if (z == 'C' && drzewa < 200000) {
             placeG[i][j] = 115;
             place[i][j] = 256 + 512 + drzewa;
             drzewa++;
           }
-          if (z == 'D' && drzewa < 2000) {
+          if (z == 'D' && drzewa < 200000) {
             placeG[i][j] = 116;
             place[i][j] = 256 + 512 + drzewa;
             drzewa++;
           }
-          if (z == 'E' && drzewa < 2000) {
+          if (z == 'E' && drzewa < 200000) {
             placeG[i][j] = 117;
             place[i][j] = 256 + 512 + drzewa;
             drzewa++;
           }
-          if (z == 'F' && drzewa < 2000) {
+          if (z == 'F' && drzewa < 200000) {
             placeG[i][j] = 118;
             place[i][j] = 256 + 512 + drzewa;
             drzewa++;
           }
-          if (z == 'G' && drzewa < 2000) {
+          if (z == 'G' && drzewa < 200000) {
             placeG[i][j] = 119;
             place[i][j] = 256 + 512 + drzewa;
             drzewa++;
@@ -2831,7 +2891,7 @@ void InitBattle(int level,
           }
           //----- zamki -----------
           if (z == 'H') {
-            if (chatki < 19) {
+            if (chatki < MaxBuildings) {
               castle[0].b[chatki].Init(i, j, 11, 1, chatki);
               castle[0].b[chatki].exist = 1;
               castle[0].b[chatki].hp = castle[0].b[chatki].maxhp;
@@ -2839,35 +2899,35 @@ void InitBattle(int level,
             }
           }
           if (z == 'I') {
-            if (chatki < 19) {
+            if (chatki < MaxBuildings) {
               castle[0].b[chatki].Init(i, j, 12, 1, chatki);
               chatki++;
             }
           }
           if (z == 'J') // koszary
           {
-            if (chatki < 19) {
+            if (chatki < MaxBuildings) {
               castle[0].b[chatki].Init(i, j, 13, 1, chatki);
               chatki++;
             }
           }
           if (z == 'K') // swiatynia
           {
-            if (chatki < 19) {
+            if (chatki < MaxBuildings) {
               castle[0].b[chatki].Init(i, j, 14, 1, chatki);
               chatki++;
             }
           }
           if (z == 'L') // KOSZAARY 2
           {
-            if (chatki < 19) {
+            if (chatki < MaxBuildings) {
               castle[0].b[chatki].Init(i, j, 15, 1, chatki);
               chatki++;
             }
           }
           if (z == 'M') // DOM BOH
           {
-            if (chatki < 19) {
+            if (chatki < MaxBuildings) {
               castle[0].b[chatki].Init(i, j, 16, 1, chatki);
               chatki++;
             }
@@ -2876,70 +2936,70 @@ void InitBattle(int level,
           if (z == 'x' && p0 < 39) {
             p0++;
             castle[0].m[p0].Init(0, i, j, 0, 5);
-            castle[0].m[p0].SetNr(256 + p0 + 200);
+            castle[0].m[p0].SetNr(NR_ENC | NR_CASTLE | (p0 << 4));
             castle[0].m[p0].SetIFF(1);
             castle[0].m[p0].Show();
           }
           if (z == 'y' && p0 < 39) {
             p0++;
             castle[0].m[p0].Init(1, i, j, 0, 5);
-            castle[0].m[p0].SetNr(256 + p0 + 200);
+            castle[0].m[p0].SetNr(NR_ENC | NR_CASTLE | (p0 << 4));
             castle[0].m[p0].SetIFF(1);
             castle[0].m[p0].Show();
           }
           if (z == 'z' && p0 < 39) {
             p0++;
             castle[0].m[p0].Init(2, i, j, 0, 5);
-            castle[0].m[p0].SetNr(256 + p0 + 200);
+            castle[0].m[p0].SetNr(NR_ENC | NR_CASTLE | (p0 << 4));
             castle[0].m[p0].SetIFF(1);
             castle[0].m[p0].Show();
           }
           if (z == '9' && p0 < 39) {
             p0++;
             castle[0].m[p0].Init(3, i, j, 0, 5);
-            castle[0].m[p0].SetNr(256 + p0 + 200);
+            castle[0].m[p0].SetNr(NR_ENC | NR_CASTLE | (p0 << 4));
             castle[0].m[p0].SetIFF(1);
             castle[0].m[p0].Show();
           }
           if (z == '0' && p0 < 39) {
             p0++;
             castle[0].m[p0].Init(4, i, j, 0, 5);
-            castle[0].m[p0].SetNr(256 + p0 + 200);
+            castle[0].m[p0].SetNr(NR_ENC | NR_CASTLE | (p0 << 4));
             castle[0].m[p0].SetIFF(1);
             castle[0].m[p0].Show();
           }
           if (z == ':' && p0 < 39) {
             p0++;
             castle[0].m[p0].Init(5, i, j, 0, 5);
-            castle[0].m[p0].SetNr(256 + p0 + 200);
+            castle[0].m[p0].SetNr(NR_ENC | NR_CASTLE | (p0 << 4));
             castle[0].m[p0].SetIFF(1);
             castle[0].m[p0].Show();
           }
           if (z == ';' && p0 < 39) {
             p0++;
             castle[0].m[p0].Init(6, i, j, 0, 5);
-            castle[0].m[p0].SetNr(256 + p0 + 200);
+            castle[0].m[p0].SetNr(NR_ENC | NR_CASTLE | (p0 << 4));
             castle[0].m[p0].SetIFF(1);
             castle[0].m[p0].Show();
           }
           if (z == '<' && p0 < 39) {
             p0++;
             castle[0].m[p0].Init(7, i, j, 0, 5);
-            castle[0].m[p0].SetNr(256 + p0 + 200);
+            castle[0].m[p0].SetNr(NR_ENC | NR_CASTLE | (p0 << 4));
             castle[0].m[p0].SetIFF(1);
             castle[0].m[p0].Show();
           }
           if (z == '>' && p0 < 39) {
             p0++;
             castle[0].m[p0].Init(8, i, j, 0, 5);
-            castle[0].m[p0].SetNr(256 + p0 + 200);
+            castle[0].m[p0].SetNr(NR_ENC | NR_CASTLE | (p0 << 4));
             castle[0].m[p0].SetIFF(1);
             castle[0].m[p0].Show();
           }
           if (z == ',' && p0 < 39) {
             p0++;
             castle[0].m[p0].Init(9, i, j, 0, 5);
-            castle[0].m[p0].SetNr(256 + p0 + 200);
+            castle[0].m[p0].SetNr(NR_ENC | NR_CASTLE | (p0 << 4));
             castle[0].m[p0].SetIFF(1);
             castle[0].m[p0].Show();
           }
@@ -2947,7 +3007,7 @@ void InitBattle(int level,
           {
             p0++;
             castle[0].m[p0].Init(10, i, j, 0, 5);
-            castle[0].m[p0].SetNr(256 + p0 + 200);
+            castle[0].m[p0].SetNr(NR_ENC | NR_CASTLE | (p0 << 4));
             castle[0].m[p0].SetIFF(1);
             castle[0].m[p0].Show();
           }
@@ -2955,7 +3015,7 @@ void InitBattle(int level,
           {
             p0++;
             castle[0].m[p0].Init(11, i, j, 0, 5);
-            castle[0].m[p0].SetNr(256 + p0 + 200);
+            castle[0].m[p0].SetNr(NR_ENC | NR_CASTLE | (p0 << 4));
             castle[0].m[p0].SetIFF(1);
             castle[0].m[p0].Show();
           }
@@ -2963,46 +3023,46 @@ void InitBattle(int level,
           {
             p0++;
             castle[0].m[p0].Init(12, i, j, 0, 5);
-            castle[0].m[p0].SetNr(256 + p0 + 200);
+            castle[0].m[p0].SetNr(NR_ENC | NR_CASTLE | (p0 << 4));
             castle[0].m[p0].SetIFF(1);
             castle[0].m[p0].Show();
           }
           //-----------------------------------------------------------------
           if (z == 'N') {
-            if (chaTki < 19) {
+            if (chaTki < MaxBuildings) {
               castle[1].b[chaTki].Init(i, j, 11, 2, chaTki);
               chaTki++;
             }
           }
           if (z == 'O') {
-            if (chaTki < 19) {
+            if (chaTki < MaxBuildings) {
               castle[1].b[chaTki].Init(i, j, 12, 2, chaTki);
               chaTki++;
             }
           }
           if (z == 'P') {
-            if (chaTki < 19) {
+            if (chaTki < MaxBuildings) {
               castle[1].b[chaTki].Init(i, j, 13, 2, chaTki);
               chaTki++;
             }
           }
           if (z == 'Q') // swiatynia
           {
-            if (chaTki < 19) {
+            if (chaTki < MaxBuildings) {
               castle[1].b[chaTki].Init(i, j, 14, 2, chaTki);
               chaTki++;
             }
           }
           if (z == 'R') // koszary2
           {
-            if (chaTki < 19) {
+            if (chaTki < MaxBuildings) {
               castle[1].b[chaTki].Init(i, j, 15, 2, chaTki);
               chaTki++;
             }
           }
           if (z == 'S') // akademia
           {
-            if (chaTki < 19) {
+            if (chaTki < MaxBuildings) {
               castle[1].b[chaTki].Init(i, j, 16, 2, chaTki);
               chaTki++;
             }
@@ -3011,70 +3071,70 @@ void InitBattle(int level,
           if (z == 'T' && p1 < 39) {
             p1++;
             castle[1].m[p1].Init(0, i, j, 0, 5);
-            castle[1].m[p1].SetNr(512 + p1 + 200);
+            castle[1].m[p1].SetNr(NR_ENC | NR_CASTLE | (1 << 28) | (p1 << 4));
             castle[1].m[p1].SetIFF(2);
             castle[1].m[p1].Show();
           }
           if (z == 'U' && p1 < 39) {
             p1++;
             castle[1].m[p1].Init(1, i, j, 0, 5);
-            castle[1].m[p1].SetNr(512 + p1 + 200);
+            castle[1].m[p1].SetNr(NR_ENC | NR_CASTLE | (1 << 28) | (p1 << 4));
             castle[1].m[p1].SetIFF(2);
             castle[1].m[p1].Show();
           }
           if (z == 'W' && p1 < 39) {
             p1++;
             castle[1].m[p1].Init(2, i, j, 0, 5);
-            castle[1].m[p1].SetNr(512 + p1 + 200);
+            castle[1].m[p1].SetNr(NR_ENC | NR_CASTLE | (1 << 28) | (p1 << 4));
             castle[1].m[p1].SetIFF(2);
             castle[1].m[p1].Show();
           }
           if (z == 'X' && p1 < 39) {
             p1++;
             castle[1].m[p1].Init(3, i, j, 0, 5);
-            castle[1].m[p1].SetNr(512 + p1 + 200);
+            castle[1].m[p1].SetNr(NR_ENC | NR_CASTLE | (1 << 28) | (p1 << 4));
             castle[1].m[p1].SetIFF(2);
             castle[1].m[p1].Show();
           }
           if (z == 'Y' && p1 < 39) {
             p1++;
             castle[1].m[p1].Init(4, i, j, 0, 5);
-            castle[1].m[p1].SetNr(512 + p1 + 200);
+            castle[1].m[p1].SetNr(NR_ENC | NR_CASTLE | (1 << 28) | (p1 << 4));
             castle[1].m[p1].SetIFF(2);
             castle[1].m[p1].Show();
           }
           if (z == 'Z' && p1 < 39) {
             p1++;
             castle[1].m[p1].Init(5, i, j, 0, 5);
-            castle[1].m[p1].SetNr(512 + p1 + 200);
+            castle[1].m[p1].SetNr(NR_ENC | NR_CASTLE | (1 << 28) | (p1 << 4));
             castle[1].m[p1].SetIFF(2);
             castle[1].m[p1].Show();
           }
           if (z == '#' && p1 < 39) {
             p1++;
             castle[1].m[p1].Init(6, i, j, 0, 5);
-            castle[1].m[p1].SetNr(512 + p1 + 200);
+            castle[1].m[p1].SetNr(NR_ENC | NR_CASTLE | (1 << 28) | (p1 << 4));
             castle[1].m[p1].SetIFF(2);
             castle[1].m[p1].Show();
           }
           if (z == '"' && p1 < 39) {
             p1++;
             castle[1].m[p1].Init(7, i, j, 0, 5);
-            castle[1].m[p1].SetNr(512 + p1 + 200);
+            castle[1].m[p1].SetNr(NR_ENC | NR_CASTLE | (1 << 28) | (p1 << 4));
             castle[1].m[p1].SetIFF(2);
             castle[1].m[p1].Show();
           }
           if (z == '%' && p1 < 39) {
             p1++;
             castle[1].m[p1].Init(8, i, j, 0, 5);
-            castle[1].m[p1].SetNr(512 + p1 + 200);
+            castle[1].m[p1].SetNr(NR_ENC | NR_CASTLE | (1 << 28) | (p1 << 4));
             castle[1].m[p1].SetIFF(2);
             castle[1].m[p1].Show();
           }
           if (z == '&' && p1 < 39) {
             p1++;
             castle[1].m[p1].Init(9, i, j, 0, 5);
-            castle[1].m[p1].SetNr(512 + p1 + 200);
+            castle[1].m[p1].SetNr(NR_ENC | NR_CASTLE | (1 << 28) | (p1 << 4));
             castle[1].m[p1].SetIFF(2);
             castle[1].m[p1].Show();
           }
@@ -3082,7 +3142,7 @@ void InitBattle(int level,
           {
             p1++;
             castle[1].m[p1].Init(10, i, j, 0, 5);
-            castle[1].m[p1].SetNr(512 + p1 + 200);
+            castle[1].m[p1].SetNr(NR_ENC | NR_CASTLE | (1 << 28) | (p1 << 4));
             castle[1].m[p1].SetIFF(2);
             castle[1].m[p1].Show();
           }
@@ -3090,7 +3150,7 @@ void InitBattle(int level,
           {
             p1++;
             castle[1].m[p1].Init(11, i, j, 0, 5);
-            castle[1].m[p1].SetNr(512 + p1 + 200);
+            castle[1].m[p1].SetNr(NR_ENC | NR_CASTLE | (1 << 28) | (p1 << 4));
             castle[1].m[p1].SetIFF(2);
             castle[1].m[p1].Show();
           }
@@ -3098,7 +3158,7 @@ void InitBattle(int level,
           {
             p1++;
             castle[1].m[p1].Init(12, i, j, 0, 5);
-            castle[1].m[p1].SetNr(512 + p1 + 200);
+            castle[1].m[p1].SetNr(NR_ENC | NR_CASTLE | (1 << 28) | (p1 << 4));
             castle[1].m[p1].SetIFF(2);
             castle[1].m[p1].Show();
           }
@@ -3131,7 +3191,9 @@ void InitBattle(int level,
         exit(0);
       }
       // OutText13h(50,15,"Czytam nagl%wek",255);
-      fseek(plikPlansz, MaxX * MaxY * 4, SEEK_SET);
+      // PORT: plany binarne (edytor) nie maja naglowka rozmiaru - zawsze
+      // mapX x mapY (66x66 dla starych; fallback bez zmian)
+      fseek(plikPlansz, mapX * mapY * 4, SEEK_SET);
       fread((void *)&E, sizeof(EditStr), 1, plikPlansz);
 
       // sprintf(name,"x:%d,y:%d,tp:%d,wk:%d,",E.X,E.Y,E.typPlanszy,E.warunekKonca);
@@ -3170,8 +3232,8 @@ void InitBattle(int level,
       // if(typ)OutText13h(50,120,"Blad",255);
       // OutText13h(50,180,"Czytam dane",255);
 
-      for (j = 0; j < MaxY; j++)
-        for (i = 0; i < MaxX; i++) {
+      for (j = 0; j < mapY; j++)
+        for (i = 0; i < mapX; i++) {
           // placeN[i][j]=1;//usunac
           typ = fread((void *)&placeG[i][j], 4, 1, plikPlansz);
 
@@ -3188,7 +3250,7 @@ void InitBattle(int level,
               if (!p1)
                 p1++;
               castle[1].m[1].Init(pl.typ, i, j, 0, 5);
-              castle[1].m[1].SetNr(512 + 201);
+              castle[1].m[1].SetNr(NR_ENC | NR_CASTLE | (1 << 28) | (1 << 4));
               castle[1].m[1].SetIFF(2);
               castle[1].m[1].Show();
             }
@@ -3274,7 +3336,7 @@ void InitBattle(int level,
           case 225:
           case 245:
             typ = 1 + (placeG[i][j] - 145) / 20;
-            if (chatki < 19 && typ > 0 && typ < 7) {
+            if (chatki < MaxBuildings && typ > 0 && typ < 7) {
               castle[0].b[chatki].Init(i, j, 10 + typ, 1, chatki);
               castle[0].b[chatki].exist = 1;
               castle[0].b[chatki].hp = castle[0].b[chatki].maxhp;
@@ -3302,7 +3364,7 @@ void InitBattle(int level,
             if (p0 < 39) {
               p0++;
               castle[0].m[p0].Init(placeG[i][j] - 302, i, j, 0, 5);
-              castle[0].m[p0].SetNr(256 + p0 + 200);
+              castle[0].m[p0].SetNr(NR_ENC | NR_CASTLE | (p0 << 4));
               castle[0].m[p0].SetIFF(1);
               castle[0].m[p0].Show();
             }
@@ -3316,7 +3378,7 @@ void InitBattle(int level,
           case 235:
           case 255:
             typ = 1 + (placeG[i][j] - 155) / 20;
-            if (chaTki < 19) {
+            if (chaTki < MaxBuildings) {
               castle[1].b[chaTki].Init(i, j, 10 + typ, 2, chaTki);
               chaTki++;
 
@@ -3342,7 +3404,7 @@ void InitBattle(int level,
             if (p1 < 39) {
               p1++;
               castle[1].m[p1].Init(placeG[i][j] - 315, i, j, 0, 5);
-              castle[1].m[p1].SetNr(512 + p1 + 200);
+              castle[1].m[p1].SetNr(NR_ENC | NR_CASTLE | (1 << 28) | (p1 << 4));
               castle[1].m[p1].SetIFF(2);
               castle[1].m[p1].Show();
             }
@@ -3366,13 +3428,13 @@ void InitBattle(int level,
     ScreenX = 1;
   if (ScreenY < 1)
     ScreenY = 1;
-  if (ScreenX > MaxX - 16)
-    ScreenX = MaxX - 16;
-  if (ScreenY > MaxY - 14)
-    ScreenY = MaxY - 14;
+  if (ScreenX > mapX - 16)
+    ScreenX = mapX - 16;
+  if (ScreenY > mapY - 14)
+    ScreenY = mapY - 14;
   if (level < 26) {
-    for (i = 1; i < MaxX - 1; i++)
-      for (j = 1; j < MaxY - 1; j++) {
+    for (i = 1; i < mapX - 1; i++)
+      for (j = 1; j < mapY - 1; j++) {
         if (placeG[i][j] > 30 && placeG[i][j] < 46)
           Droga(i, j, 35); // droga
         if (placeG[i][j] > 265 && placeG[i][j] < 277)
@@ -3515,13 +3577,19 @@ void Options(void) {
   // zrodle; tlo ekranu 13 nie ma wklejonych napisow - dowod: ekran_13.png bez
   // napisow), user prosil o przywrocenie. Znaki %r i $ to kodowanie
   // Transform13h (Utw%r = Utwor, Dzwi$ki = Dzwieki) - zostaja oryginalne ciagi.
-  OutText13h(19,9,"Mowa                                   Utw%r",1);
+  // PORT: "Utw%r" rysowany osobno - w oryginale dopychalo go 35 spacji
+  // (mierzone pod font CD 8 px) i przy 6-px foncie portu napis wtlaczal sie
+  // w ramke przycisku (user: "Utwór out of place"); x=215 = lewa krawedz
+  // dwoch czarnych ramek ponizej (215,39)/(260,39) - etykieta nad nimi.
+  OutText13h(19,9,"Mowa",1);
+  OutText13h(215,9,"Utw%r",1);
   OutText13h(19,42,"Dzwi$ki",1);
   OutText13h(19,76,"Muzyka",1);
   OutText13h(19,108,"Szybkosc przewijania",1);
   OutText13h(19,142,"Szybkosc gry",1);
 
-  OutText13h(20,9,"Mowa                                   Utw%r",kolorTekstu);
+  OutText13h(20,9,"Mowa",kolorTekstu);
+  OutText13h(216,9,"Utw%r",kolorTekstu);
   OutText13h(20,42,"Dzwi$ki",kolorTekstu);
   OutText13h(20,76,"Muzyka",kolorTekstu);
   OutText13h(20,108,"Szybkosc przewijania",kolorTekstu);
@@ -3723,7 +3791,8 @@ char EndLevel(void) {
         if (castle[1].m[i].exist)
           y = 1;
       }
-    for (i = 1; i < 20; i++) {
+    // PORT: petla po 65536 slotach (kazdy krok jedynie sprawdza exist)
+    for (i = 1; i < MaxBuildings; i++) {
       if (castle[0].b[i].exist)
         x = 1;
       if (castle[1].b[i].exist)
@@ -3740,14 +3809,15 @@ char EndLevel(void) {
   {
     if (placeN[pl.x0][pl.y0] && castle[0].m[1].exist == 0)
       return 2; // niestety zabili
-    if (place[pl.xw][pl.yw] == 456 + 1)
+    // PORT: ratowany = jednostka zamku gracza m[1] (stare 456+1 = 256+200+1)
+    if (place[pl.xw][pl.yw] == (NR_ENC | NR_CASTLE | (1 << 4)))
       return 1; // 256+201
     x = 0;
     for (i = 1; i < MaxUnitsInCastle; i++) {
       if (castle[0].m[i].exist)
         x = 1;
     }
-    for (i = 1; i < 20; i++) {
+    for (i = 1; i < MaxBuildings; i++) {
       if (castle[0].b[i].exist)
         x = 1;
     }
@@ -3764,7 +3834,7 @@ char EndLevel(void) {
       if (castle[0].m[i].exist)
         x = 1;
     }
-    for (i = 1; i < 20; i++) {
+    for (i = 1; i < MaxBuildings; i++) {
       if (castle[0].b[i].exist)
         x = 1;
     }
@@ -3777,7 +3847,7 @@ char EndLevel(void) {
   if (pl.endType == 2) // zbuduj "pl.typ" budynkow
   {
     x = 0;
-    for (i = 0; i < 20; i++)
+    for (i = 0; i < MaxBuildings; i++)
       if (castle[0].b[i].exist)
         x++;
     if (x >= pl.typ)
@@ -3787,7 +3857,7 @@ char EndLevel(void) {
       if (castle[0].m[i].exist)
         x = 1;
     }
-    for (i = 1; i < 20; i++) {
+    for (i = 1; i < MaxBuildings; i++) {
       if (castle[0].b[i].exist)
         x = 1;
     }
@@ -3885,6 +3955,120 @@ int sSubMenu() {
 ////////////////////////////////////////////////////////////////////
 //
 ///////////////////////////////////////////////////////////////////////
+//=============================================================================
+// PORT: save/load w formatach int64: nowy save - pola int = 4B, wspolrzedne /
+// nr / target (int64) = 8B; stary save - WSZYSTKO 4B (potem POL_NrToNew
+// przenosi zapisane nr do nowego kodowania, patrz mover1.cpp). Kolejnosc pol
+// jak w oryginale (w tym podwojny zapis nr - cecha starego formatu, bez
+// kosztu: 4B/8B duplikat).
+#define POL_SZ64 (8)
+#define POL_SZ32 (4)
+static long long POL_Rd64(FILE *file, int old4) {
+  if (old4) { int v = 0; fread(&v, 4, 1, file); return v; }
+  long long v = 0; fread(&v, 8, 1, file); return v;
+}
+static int POL_Rd32(FILE *file) { int v = 0; fread(&v, 4, 1, file); return v; }
+static void POL_SaveMover(FILE *file, Mover1 &m) {
+  fwrite(&m.nr, POL_SZ64, 1, file);
+  fwrite(&m.x, POL_SZ64, 1, file);
+  fwrite(&m.y, POL_SZ64, 1, file);
+  fwrite(&m.type, POL_SZ32, 1, file);
+  fwrite(&m.command, POL_SZ32, 1, file);
+  fwrite(&m.commandN, POL_SZ32, 1, file);
+  fwrite(&m.xe, POL_SZ64, 1, file);
+  fwrite(&m.ye, POL_SZ64, 1, file);
+  fwrite(&m.xp, POL_SZ64, 1, file);
+  fwrite(&m.yp, POL_SZ64, 1, file);
+  fwrite(&m.xm, POL_SZ64, 1, file);
+  fwrite(&m.ym, POL_SZ64, 1, file);
+  fwrite(&m.delay, POL_SZ32, 1, file);
+  fwrite(&m.maxdelay, POL_SZ32, 1, file);
+  fwrite(&m.hp, POL_SZ32, 1, file);
+  fwrite(&m.maxhp, POL_SZ32, 1, file);
+  fwrite(&m.target, POL_SZ64, 1, file);
+  fwrite(&m.exist, POL_SZ32, 1, file);
+  fwrite(&m.inmove, POL_SZ32, 1, file);
+  fwrite(&m.damage, POL_SZ32, 1, file);
+  fwrite(&m.udder, POL_SZ32, 1, file);
+  fwrite(&m.magic, POL_SZ32, 1, file);
+  fwrite(&m.s_range, POL_SZ32, 1, file);
+  fwrite(&m.a_range, POL_SZ32, 1, file);
+  fwrite(&m.armour, POL_SZ32, 1, file);
+  fwrite(&m.ShowHit, POL_SZ32, 1, file);
+  fwrite(&m.nr, POL_SZ64, 1, file); // podwojny zapis jak w oryginale
+  fwrite(&m.IFF, POL_SZ32, 1, file);
+  fwrite(&m.mainTarget, POL_SZ32, 1, file);
+  fwrite(&m.exp, POL_SZ32, 1, file);
+}
+static void POL_LoadMover(FILE *file, Mover1 &m, int old4) {
+  m.nr = POL_Rd64(file, old4);
+  m.x = POL_Rd64(file, old4);
+  m.y = POL_Rd64(file, old4);
+  m.type = POL_Rd32(file);
+  m.command = POL_Rd32(file);
+  m.commandN = POL_Rd32(file);
+  m.xe = POL_Rd64(file, old4);
+  m.ye = POL_Rd64(file, old4);
+  m.xp = POL_Rd64(file, old4);
+  m.yp = POL_Rd64(file, old4);
+  m.xm = POL_Rd64(file, old4);
+  m.ym = POL_Rd64(file, old4);
+  m.delay = POL_Rd32(file);
+  m.maxdelay = POL_Rd32(file);
+  m.hp = POL_Rd32(file);
+  m.maxhp = POL_Rd32(file);
+  m.target = POL_Rd64(file, old4);
+  m.exist = POL_Rd32(file);
+  m.inmove = POL_Rd32(file);
+  m.damage = POL_Rd32(file);
+  m.udder = POL_Rd32(file);
+  m.magic = POL_Rd32(file);
+  m.s_range = POL_Rd32(file);
+  m.a_range = POL_Rd32(file);
+  m.armour = POL_Rd32(file);
+  m.ShowHit = POL_Rd32(file);
+  m.nr = POL_Rd64(file, old4); // podwojny zapis jak w oryginale
+  m.IFF = POL_Rd32(file);
+  m.mainTarget = POL_Rd32(file);
+  m.exp = POL_Rd32(file);
+}
+static void POL_SaveBuilding(FILE *file, Building &b) {
+  fwrite(&b.exist, POL_SZ32, 1, file);
+  fwrite(&b.IFF, POL_SZ32, 1, file);
+  fwrite(&b.nr, POL_SZ64, 1, file);
+  fwrite(&b.x, POL_SZ64, 1, file);
+  fwrite(&b.y, POL_SZ64, 1, file);
+  fwrite(&b.type, POL_SZ32, 1, file);
+  fwrite(&b.hp, POL_SZ32, 1, file);
+  fwrite(&b.maxhp, POL_SZ32, 1, file);
+  fwrite(&b.food, POL_SZ32, 1, file);
+  fwrite(&b.maxfood, POL_SZ32, 1, file);
+  fwrite(&b.faza, POL_SZ32, 1, file);
+  for (int k = 0; k < 6; k++)
+    POL_SaveMover(file, b.m[k]);
+}
+static void POL_LoadBuilding(FILE *file, Building &b, int old4) {
+  b.exist = POL_Rd32(file);
+  b.IFF = POL_Rd32(file);
+  b.nr = POL_Rd64(file, old4);
+  b.x = POL_Rd64(file, old4);
+  b.y = POL_Rd64(file, old4);
+  b.type = POL_Rd32(file);
+  b.hp = POL_Rd32(file);
+  b.maxhp = POL_Rd32(file);
+  b.food = POL_Rd32(file);
+  b.maxfood = POL_Rd32(file);
+  b.faza = POL_Rd32(file);
+  for (int k = 0; k < 6; k++) {
+    POL_LoadMover(file, b.m[k], old4);
+    b.m[k].missile.exist = 0;
+    b.m[k].ispath = 0;
+  }
+}
+
+////////////////////////////////////////////////////////////////////
+//
+///////////////////////////////////////////////////////////////////////
 int SaveGame() {
   FILE *file;
   int i, j;
@@ -3913,6 +4097,10 @@ int SaveGame() {
     return 1;
   }
   fwrite(name, 1, 12, file);
+  // PORT: naglowek rozmiaru mapy w nowym formacie (stare save'y bez tych
+  // 16 bajtow = 66x66 - nadal czytelne)
+  fwrite(&mapX, 8, 1, file);
+  fwrite(&mapY, 8, 1, file);
   fwrite(&pl, sizeof(Plansza), 1, file);
   fwrite(&color2, 4, 1, file);
   fwrite(&level, 4, 1, file);
@@ -3925,104 +4113,51 @@ int SaveGame() {
     fwrite(&positioN[j][0], 4, 1, file);
     fwrite(&positioN[j][1], 4, 1, file);
   }
-  for (i = 0; i < MaxX; i++)
-    for (j = 0; j < MaxY; j++)
-      fwrite(&place[i][j], 4, 1, file);
-  for (i = 0; i < MaxX; i++)
-    for (j = 0; j < MaxY; j++)
+  // PORT: mapa w rozmiarze mapX x mapY (nie calych tablic MaxX x MaxY);
+  // place[][] to int64 - po 8B na komorke w nowym formacie
+  for (i = 0; i < mapX; i++)
+    for (j = 0; j < mapY; j++)
+      fwrite(&place[i][j], 8, 1, file);
+  for (i = 0; i < mapX; i++)
+    for (j = 0; j < mapY; j++)
       fwrite(&placeG[i][j], 4, 1, file);
-  for (i = 0; i < MaxX; i++)
-    for (j = 0; j < MaxY; j++)
-      fwrite(&placeN[i][j], 4, 1, file);
-  fwrite(&ScreenX, 4, 1, file);
-  fwrite(&ScreenY, 4, 1, file);
-  fwrite(&drzewa, 4, 1, file);
+  for (i = 0; i < mapX; i++)
+    for (j = 0; j < mapY; j++)
+      fwrite(&placeN[i][j], 4, 1, file); // 4B na char - quirk oryginalu
+  fwrite(&ScreenX, 8, 1, file);
+  fwrite(&ScreenY, 8, 1, file);
+  fwrite(&drzewa, 8, 1, file);
   fwrite(&mem, sizeof(Mem), 1, file);
   for (j = 0; j < 2; j++) {
-    fwrite(&castle[j].milk, 4, 1, file);
-    fwrite(&castle[j].maxmilk, 4, 1, file);
+    // PORT: milk/maxmilk zapisywane po 4B (dolne 32 bity int64 - wartosci
+    // <= 2 mld, zakres w pelni wystarczajacy; w pamieci zostaje long long)
+    {
+      int pol_milk = (int)castle[j].milk;
+      int pol_maxmilk = (int)castle[j].maxmilk;
+      fwrite(&pol_milk, 4, 1, file);
+      fwrite(&pol_maxmilk, 4, 1, file);
+    }
     fwrite(&castle[j].IFF, 4, 1, file);
     fwrite(&castle[j].faza, 4, 1, file);
-    for (i = 1; i < MaxUnitsInCastle; i++) {
-      fwrite(&castle[j].m[i].nr, 4, 1, file);
-      fwrite(&castle[j].m[i].x, 4, 1, file);
-      fwrite(&castle[j].m[i].y, 4, 1, file);
-      fwrite(&castle[j].m[i].type, 4, 1, file);
-      fwrite(&castle[j].m[i].command, 4, 1, file);
-      fwrite(&castle[j].m[i].commandN, 4, 1, file);
-      fwrite(&castle[j].m[i].xe, 4, 1, file);
-      fwrite(&castle[j].m[i].ye, 4, 1, file);
-      fwrite(&castle[j].m[i].xp, 4, 1, file);
-      fwrite(&castle[j].m[i].yp, 4, 1, file);
-      fwrite(&castle[j].m[i].xm, 4, 1, file);
-      fwrite(&castle[j].m[i].ym, 4, 1, file);
-      fwrite(&castle[j].m[i].delay, 4, 1, file);
-      fwrite(&castle[j].m[i].maxdelay, 4, 1, file);
-      fwrite(&castle[j].m[i].hp, 4, 1, file);
-      fwrite(&castle[j].m[i].maxhp, 4, 1, file);
-      fwrite(&castle[j].m[i].target, 4, 1, file);
-      fwrite(&castle[j].m[i].exist, 4, 1, file);
-      fwrite(&castle[j].m[i].inmove, 4, 1, file);
-      fwrite(&castle[j].m[i].damage, 4, 1, file);
-      fwrite(&castle[j].m[i].udder, 4, 1, file);
-      fwrite(&castle[j].m[i].magic, 4, 1, file);
-      fwrite(&castle[j].m[i].s_range, 4, 1, file);
-      fwrite(&castle[j].m[i].a_range, 4, 1, file);
-      fwrite(&castle[j].m[i].armour, 4, 1, file);
-      fwrite(&castle[j].m[i].ShowHit, 4, 1, file);
-      fwrite(&castle[j].m[i].nr, 4, 1, file);
-      fwrite(&castle[j].m[i].IFF, 4, 1, file);
-      fwrite(&castle[j].m[i].mainTarget, 4, 1, file);
-      fwrite(&castle[j].m[i].exp, 4, 1, file);
-    }
-    for (i = 0; i < 20; i++) {
-      int k;
-      fwrite(&castle[j].b[i].exist, 4, 1, file);
-      fwrite(&castle[j].b[i].IFF, 4, 1, file);
-      fwrite(&castle[j].b[i].nr, 4, 1, file);
-      fwrite(&castle[j].b[i].x, 4, 1, file);
-      fwrite(&castle[j].b[i].y, 4, 1, file);
-      fwrite(&castle[j].b[i].type, 4, 1, file);
-      fwrite(&castle[j].b[i].hp, 4, 1, file);
-      fwrite(&castle[j].b[i].maxhp, 4, 1, file);
-      fwrite(&castle[j].b[i].food, 4, 1, file);
-      fwrite(&castle[j].b[i].maxfood, 4, 1, file);
-      fwrite(&castle[j].b[i].faza, 4, 1, file);
-      for (k = 0; k < 6; k++) {
-        fwrite(&castle[j].b[i].m[k].nr, 4, 1, file);
-        fwrite(&castle[j].b[i].m[k].x, 4, 1, file);
-        fwrite(&castle[j].b[i].m[k].y, 4, 1, file);
-        fwrite(&castle[j].b[i].m[k].type, 4, 1, file);
-        fwrite(&castle[j].b[i].m[k].command, 4, 1, file);
-        fwrite(&castle[j].b[i].m[k].commandN, 4, 1, file);
-        fwrite(&castle[j].b[i].m[k].xe, 4, 1, file);
-        fwrite(&castle[j].b[i].m[k].ye, 4, 1, file);
-        fwrite(&castle[j].b[i].m[k].xp, 4, 1, file);
-        fwrite(&castle[j].b[i].m[k].yp, 4, 1, file);
-        fwrite(&castle[j].b[i].m[k].xm, 4, 1, file);
-        fwrite(&castle[j].b[i].m[k].ym, 4, 1, file);
-        fwrite(&castle[j].b[i].m[k].delay, 4, 1, file);
-        fwrite(&castle[j].b[i].m[k].maxdelay, 4, 1, file);
-        fwrite(&castle[j].b[i].m[k].hp, 4, 1, file);
-        fwrite(&castle[j].b[i].m[k].maxhp, 4, 1, file);
-        fwrite(&castle[j].b[i].m[k].target, 4, 1, file);
-        fwrite(&castle[j].b[i].m[k].exist, 4, 1, file);
-        fwrite(&castle[j].b[i].m[k].inmove, 4, 1, file);
-        fwrite(&castle[j].b[i].m[k].damage, 4, 1, file);
-        fwrite(&castle[j].b[i].m[k].udder, 4, 1, file);
-        fwrite(&castle[j].b[i].m[k].magic, 4, 1, file);
-        fwrite(&castle[j].b[i].m[k].s_range, 4, 1, file);
-        fwrite(&castle[j].b[i].m[k].a_range, 4, 1, file);
-        fwrite(&castle[j].b[i].m[k].armour, 4, 1, file);
-        fwrite(&castle[j].b[i].m[k].ShowHit, 4, 1, file);
-        fwrite(&castle[j].b[i].m[k].nr, 4, 1, file);
-        fwrite(&castle[j].b[i].m[k].IFF, 4, 1, file);
-        fwrite(&castle[j].b[i].m[k].mainTarget, 4, 1, file);
-        fwrite(&castle[j].b[i].m[k].exp, 4, 1, file);
+    for (i = 1; i < MaxUnitsInCastle; i++)
+      POL_SaveMover(file, castle[j].m[i]);
+    // PORT: zapisuja sie TYLKO istniejace budynki (nowy format: licznik +
+    // indeks przed blokiem; blok 20 z oryginalu zaklepal 65536 b[] * 2 graczy)
+    {
+      int pol_nb = 0;
+      for (i = 0; i < MaxBuildings; i++)
+        if (castle[j].b[i].exist)
+          pol_nb++;
+      fwrite(&pol_nb, 4, 1, file);
+      for (i = 0; i < MaxBuildings; i++) {
+        if (!castle[j].b[i].exist)
+          continue;
+        fwrite(&i, 4, 1, file);
+        POL_SaveBuilding(file, castle[j].b[i]);
       }
     }
   }
-  fwrite(&drzewa0, 4, 1, file);
+  fwrite(&drzewa0, 8, 1, file);
   fclose(file);
   mouse.GButtonUp();
   return 0;
@@ -4036,6 +4171,7 @@ int LoadGame() {
     FILE *file;
     int i, j;
     char name[15];
+    int pol_old4 = 0; // 1 = stary format save'u (wszystko 4B, nr po staremu)
 
     i = sSubMenu();
     if (i == 4) {
@@ -4049,14 +4185,43 @@ int LoadGame() {
     for (int d1 = 0; d1 < 10; d1++)
       for (int d2 = 0; d2 < 10; d2++) {
         posTT[d1][d2][0] = 0;
-        posTT[d1][d2][1] = 20;
+        posTT[d1][d2][1] = MaxBuildings; // znacznik zamku (stare 20)
       }
     for (i = 0; i < 10; i++)
       posT[i].IFF = 2;
+    // PORT: czyszczenie calej tablicy b[] (65536) - nowy save zapisuje tylko
+    // istniejace budynki, wiec b[]>19 po starym ladowaniu nie moze przetrwac
+    castle[0].Init(1, 0);
+    castle[1].Init(2, 0);
     castle[0].FreeUnits();
     castle[1].FreeUnits();
 
     fread(name, 1, 12, file);
+    // PORT: detekcja naglowka rozmiaru mapy (nowy format). mapX/mapY sa po
+    // 8B, wiec czytamy dwa 64-bitowe pola: nowy save -> oba w 66..MaxMapSize.
+    // Stary save: pierwsze 8B to poczatek struct Plansza (char'y dt/gen/end/
+    // typ + int xw), drugie 8B to int yw + x0 - yw/x0 to wspolrzedne mapy
+    // 66x66, zawsze <= 65, wiec nie moga trafic w 66..2048 (pomylka niemozliwa).
+    // Stary save -> fallback 66x66 i czytanie wszystkiego po 4B (pol_old4).
+    {
+      long long pol_q1 = 0, pol_q2 = 0;
+      fread(&pol_q1, 8, 1, file);
+      fread(&pol_q2, 8, 1, file);
+      if (pol_q1 >= 66 && pol_q1 <= MaxMapSize && pol_q2 >= 66 &&
+          pol_q2 <= MaxMapSize) {
+        mapX = pol_q1;
+        mapY = pol_q2;
+      } else {
+        mapX = 66;
+        mapY = 66;
+        pol_old4 = 1;
+        fseek(file, -16, SEEK_CUR);
+      }
+      // PORT: kolejka BFS musi wystac do najblizszego FindCow/FindEnemy/
+      // Labeling - przy ladowaniu z menu InitBattle(0) nie biegna, wiec
+      // bez tego pol_kolejka moglaby byc NULL (crash przy pierwszym ruchu)
+      POL_KolejkaInit(mapX * mapY);
+    }
     fread(&pl, sizeof(Plansza), 1, file);
     fread(&color2, 4, 1, file);
     fread(&level, 4, 1, file);
@@ -4069,109 +4234,85 @@ int LoadGame() {
       fread(&positioN[j][0], 4, 1, file);
       fread(&positioN[j][1], 4, 1, file);
     }
-    for (i = 0; i < MaxX; i++)
-      for (j = 0; j < MaxY; j++)
-        fread(&place[i][j], 4, 1, file);
-    for (i = 0; i < MaxX; i++)
-      for (j = 0; j < MaxY; j++)
+    // PORT: mapa w rozmiarze z naglowka; place[][] int64 - 8B/4B wg formatu
+    for (i = 0; i < mapX; i++)
+      for (j = 0; j < mapY; j++) {
+        if (pol_old4) {
+          int t = 0;
+          fread(&t, 4, 1, file);
+          place[i][j] = t;
+        } else {
+          fread(&place[i][j], 8, 1, file);
+        }
+      }
+    for (i = 0; i < mapX; i++)
+      for (j = 0; j < mapY; j++)
         fread(&placeG[i][j], 4, 1, file);
-    for (i = 0; i < MaxX; i++)
-      for (j = 0; j < MaxY; j++)
-        fread(&placeN[i][j], 4, 1, file);
-    fread(&ScreenX, 4, 1, file);
-    fread(&ScreenY, 4, 1, file);
-    fread(&drzewa, 4, 1, file);
+    for (i = 0; i < mapX; i++)
+      for (j = 0; j < mapY; j++) {
+        int t = 0;
+        fread(&t, 4, 1, file);
+        placeN[i][j] = (char)t;
+      }
+    ScreenX = POL_Rd64(file, pol_old4);
+    ScreenY = POL_Rd64(file, pol_old4);
+    drzewa = POL_Rd64(file, pol_old4);
     fread(&mem, sizeof(Mem), 1, file);
     mem.c = &castle[1];
     for (j = 0; j < 2; j++) {
-      fread(&castle[j].milk, 4, 1, file);
-      fread(&castle[j].maxmilk, 4, 1, file);
-      fread(&castle[j].IFF, 4, 1, file);
-      fread(&castle[j].faza, 4, 1, file);
+      // PORT: milk/maxmilk w pliku po 4B (stary format, save z 14:01 i nowy -
+      // zgodne z SaveGame; wartosci <= 2 mld, w pamieci zostaje long long)
+      castle[j].milk = POL_Rd32(file);
+      castle[j].maxmilk = POL_Rd32(file);
+      castle[j].IFF = POL_Rd32(file);
+      castle[j].faza = POL_Rd32(file);
       for (i = 1; i < MaxUnitsInCastle; i++) {
-        fread(&castle[j].m[i].nr, 4, 1, file);
-        fread(&castle[j].m[i].x, 4, 1, file);
-        fread(&castle[j].m[i].y, 4, 1, file);
-        fread(&castle[j].m[i].type, 4, 1, file);
-        fread(&castle[j].m[i].command, 4, 1, file);
-        fread(&castle[j].m[i].commandN, 4, 1, file);
-        fread(&castle[j].m[i].xe, 4, 1, file);
-        fread(&castle[j].m[i].ye, 4, 1, file);
-        fread(&castle[j].m[i].xp, 4, 1, file);
-        fread(&castle[j].m[i].yp, 4, 1, file);
-        fread(&castle[j].m[i].xm, 4, 1, file);
-        fread(&castle[j].m[i].ym, 4, 1, file);
-        fread(&castle[j].m[i].delay, 4, 1, file);
-        fread(&castle[j].m[i].maxdelay, 4, 1, file);
-        fread(&castle[j].m[i].hp, 4, 1, file);
-        fread(&castle[j].m[i].maxhp, 4, 1, file);
-        fread(&castle[j].m[i].target, 4, 1, file);
-        fread(&castle[j].m[i].exist, 4, 1, file);
-        fread(&castle[j].m[i].inmove, 4, 1, file);
-        fread(&castle[j].m[i].damage, 4, 1, file);
-        fread(&castle[j].m[i].udder, 4, 1, file);
-        fread(&castle[j].m[i].magic, 4, 1, file);
-        fread(&castle[j].m[i].s_range, 4, 1, file);
-        fread(&castle[j].m[i].a_range, 4, 1, file);
-        fread(&castle[j].m[i].armour, 4, 1, file);
-        fread(&castle[j].m[i].ShowHit, 4, 1, file);
-        fread(&castle[j].m[i].nr, 4, 1, file);
-        fread(&castle[j].m[i].IFF, 4, 1, file);
-        fread(&castle[j].m[i].mainTarget, 4, 1, file);
-        fread(&castle[j].m[i].exp, 4, 1, file);
+        POL_LoadMover(file, castle[j].m[i], pol_old4);
         castle[j].m[i].missile.exist = 0;
         castle[j].m[i].ispath = 0;
       }
-      for (i = 0; i < 20; i++) {
-        int k;
-        fread(&castle[j].b[i].exist, 4, 1, file);
-        fread(&castle[j].b[i].IFF, 4, 1, file);
-        fread(&castle[j].b[i].nr, 4, 1, file);
-        fread(&castle[j].b[i].x, 4, 1, file);
-        fread(&castle[j].b[i].y, 4, 1, file);
-        fread(&castle[j].b[i].type, 4, 1, file);
-        fread(&castle[j].b[i].hp, 4, 1, file);
-        fread(&castle[j].b[i].maxhp, 4, 1, file);
-        fread(&castle[j].b[i].food, 4, 1, file);
-        fread(&castle[j].b[i].maxfood, 4, 1, file);
-        fread(&castle[j].b[i].faza, 4, 1, file);
-        for (k = 0; k < 6; k++) {
-          fread(&castle[j].b[i].m[k].nr, 4, 1, file);
-          fread(&castle[j].b[i].m[k].x, 4, 1, file);
-          fread(&castle[j].b[i].m[k].y, 4, 1, file);
-          fread(&castle[j].b[i].m[k].type, 4, 1, file);
-          fread(&castle[j].b[i].m[k].command, 4, 1, file);
-          fread(&castle[j].b[i].m[k].commandN, 4, 1, file);
-          fread(&castle[j].b[i].m[k].xe, 4, 1, file);
-          fread(&castle[j].b[i].m[k].ye, 4, 1, file);
-          fread(&castle[j].b[i].m[k].xp, 4, 1, file);
-          fread(&castle[j].b[i].m[k].yp, 4, 1, file);
-          fread(&castle[j].b[i].m[k].xm, 4, 1, file);
-          fread(&castle[j].b[i].m[k].ym, 4, 1, file);
-          fread(&castle[j].b[i].m[k].delay, 4, 1, file);
-          fread(&castle[j].b[i].m[k].maxdelay, 4, 1, file);
-          fread(&castle[j].b[i].m[k].hp, 4, 1, file);
-          fread(&castle[j].b[i].m[k].maxhp, 4, 1, file);
-          fread(&castle[j].b[i].m[k].target, 4, 1, file);
-          fread(&castle[j].b[i].m[k].exist, 4, 1, file);
-          fread(&castle[j].b[i].m[k].inmove, 4, 1, file);
-          fread(&castle[j].b[i].m[k].damage, 4, 1, file);
-          fread(&castle[j].b[i].m[k].udder, 4, 1, file);
-          fread(&castle[j].b[i].m[k].magic, 4, 1, file);
-          fread(&castle[j].b[i].m[k].s_range, 4, 1, file);
-          fread(&castle[j].b[i].m[k].a_range, 4, 1, file);
-          fread(&castle[j].b[i].m[k].armour, 4, 1, file);
-          fread(&castle[j].b[i].m[k].ShowHit, 4, 1, file);
-          fread(&castle[j].b[i].m[k].nr, 4, 1, file);
-          fread(&castle[j].b[i].m[k].IFF, 4, 1, file);
-          fread(&castle[j].b[i].m[k].mainTarget, 4, 1, file);
-          fread(&castle[j].b[i].m[k].exp, 4, 1, file);
-          castle[j].b[i].m[k].missile.exist = 0;
-          castle[j].b[i].m[k].ispath = 0;
+      if (pol_old4) {
+        // stary format: blok 20 budynkow bez licznika i bez indeksow
+        for (i = 0; i < 20; i++)
+          POL_LoadBuilding(file, castle[j].b[i], 1);
+      } else {
+        // nowy format: licznik istniejacych + indeks przed blokiem
+        int pol_nb = POL_Rd32(file);
+        for (i = 0; i < pol_nb; i++) {
+          int pol_idx = POL_Rd32(file);
+          if (pol_idx < 0 || pol_idx >= MaxBuildings) {
+            fclose(file);
+            return 1; // uszkodzony save
+          }
+          POL_LoadBuilding(file, castle[j].b[pol_idx], 0);
         }
       }
     }
-    fread(&drzewa0, 4, 1, file);
+    drzewa0 = POL_Rd64(file, pol_old4);
+    if (pol_old4) {
+      // PORT: migracja starych nr (IFF*256 + Nr*10 + slot) do nowego
+      // kodowania - bez niej dekodery (Who/Type/Pointer) odeslalyby do
+      // niezainicjalizowanych pol tablic
+      for (i = 0; i < mapX; i++)
+        for (j = 0; j < mapY; j++)
+          place[i][j] = POL_NrToNew(place[i][j]);
+      for (j = 0; j < 2; j++) {
+        for (i = 1; i < MaxUnitsInCastle; i++) {
+          castle[j].m[i].nr = POL_NrToNew(castle[j].m[i].nr);
+          castle[j].m[i].target = POL_NrToNew(castle[j].m[i].target);
+        }
+        for (i = 0; i < MaxBuildings; i++) {
+          if (!castle[j].b[i].exist)
+            continue;
+          castle[j].b[i].nr = POL_NrToNew(castle[j].b[i].nr);
+          for (int k = 0; k < 6; k++) {
+            castle[j].b[i].m[k].nr = POL_NrToNew(castle[j].b[i].m[k].nr);
+            castle[j].b[i].m[k].target =
+                POL_NrToNew(castle[j].b[i].m[k].target);
+          }
+        }
+      }
+    }
     fclose(file);
     mem.c = &castle[1];
     endL = 0;
@@ -4179,18 +4320,14 @@ int LoadGame() {
     return (0);
   }
 }
-////////////////////////////////////////////////////////
-//////////////////////////////////////////////////////////
-//
-////////////////////////////////////////////////////////
-//////////////////////////////////////////////////////////////////////
+
 void FindGrass(int x, int y, int *xe, int *ye) {
   int i, j, k = 1;
   *xe = 0;
   for (k = 2; k <= 15; k++) {
-    for (i = x - k; i <= x + k && i < MaxX - 1; i++)
+    for (i = x - k; i <= x + k && i < mapX - 1; i++)
       if (i > 0)
-        for (j = y - k; j <= y + k && j < MaxY - 1; j++)
+        for (j = y - k; j <= y + k && j < mapY - 1; j++)
           if (j > 0)
             if (i == x - k || i == x + k || j == y - k || j == y + k) {
               if (placeG[i][j] < 9 && !place[i][j]) {
@@ -4270,7 +4407,7 @@ void DecisionB() {
         Cmd[1].command = 1;
         Cmd[1].x = mem.xe;
         Cmd[1].y = mem.ye;
-        Cmd[1].nrb = 20;
+        Cmd[1].nrb = MaxBuildings; // znacznik zamku (stare 20)
         Cmd[1].nrm = i;
         return;
       }
@@ -4360,7 +4497,7 @@ void Generator() {
   if (!castle[1].m[2].exist && !place[1][5]) {
     int x, y, d;
     castle[1].m[2].Init((mouse.X & 7) + 1, 1, 5, 0, 5);
-    castle[1].m[2].SetNr(512 + 2 + 200); //+1???
+    castle[1].m[2].SetNr(NR_ENC | NR_CASTLE | (1 << 28) | (2 << 4)); //+1???
     castle[1].m[2].SetIFF(2);
     castle[1].m[2].Show();
     d = 0;
@@ -4477,7 +4614,7 @@ po dwie krowy robil
         if(j&&!place[mem.c->b[mem.index].x][mem.c->b[mem.index].y+2])
         {
             mem.c->m[j].Init(1,mem.c->b[mem.index].x,mem.c->b[mem.index].y+2,0,0);
-            mem.c->m[j].SetNr(712+j);
+            mem.c->m[j].SetNr(NR_ENC | NR_CASTLE | (1 << 28) | (j << 4));
             mem.c->m[j].SetIFF(2);
             mem.c->m[j].SetCommand(1);
             mem.c->m[j].SetEnd(mem.c->b[mem.index].x+1,mem.c->b[mem.index].y-1);
@@ -4640,60 +4777,64 @@ void ZaznaczObiekt(int x1, int y1, int x2, int y2,
                    int mode) // 1-budynki obcy itp
 {
   int x, y, wybrany1 = 0;
-  int nrp, nrb, aa, bb;
+  int nrp, nrb = 0, bb;
 
   if (mode) {
     x = x1;
     y = y1;
-    if (place[x][y] < 256 || place[x][y] > 768) {
+    // PORT: maskowe rozpoznanie (stare progi 256..767 nie obsluguja int64)
+    if (!POL_NRENC(place[x][y])) {
       int i, j, xn = x, yn = y;
       for (i = x - 1; i <= x + 1; i++)
         for (j = y - 1; j <= y + 1; j++)
-          if (place[i][j] > 255 && place[x][y] < 769) {
+          if (POL_NRENC(place[i][j])) {
             xn = i;
             yn = j;
           }
-      if (place[xn][yn] < 256 || place[xn][yn] > 768)
+      if (!POL_NRENC(place[xn][yn]))
         return;
       x = xn;
       y = yn;
     }
     if (placeN[x][y]) {
-      aa = place[x][y] & 0x00ff;
-      bb = (place[x][y] >> 8);
-      if (bb < 1 || bb > 2)
-        return;
+      // PORT: bb to IFF-1 z bitow 28-29 (stare aa/bb czytaly 8-bitowa
+      // maske, ktora nie obejmuje int64)
       {
-        bb--;
-        nrb = aa / 10;       // nr budynku
-        nrp = aa - nrb * 10; // nr postaci
+        bb = NR_IFF(place[x][y]) - 1; // przynaleznosc (0-nasza, 1-ich)
+        if (bb < 0 || bb > 1)
+          return;
         castle[0].DisableUnits();
         castle[1].DisableUnits();
         grupa = 0;
-        select.IFF = bb;         // przynaleznosc
-        // PORT: diagnostyka zaznaczenia - co kliknieto (nrp<=3 = pracownik ->
-        // wybiera CHATE/mode=0; nrp>3 lub nrb>19 = zolnierz -> mode=1,
-        // warunek rozkazow PPM na mapie, game/battle.cpp:1687)
+        select.IFF = bb; // przynaleznosc
+        // PORT: diagnostyka zaznaczenia - co kliknieto (slot 0-3 = pole
+        // budynku -> CHATA/mode=0; slot 4-9 lub jednostka zamku = zolnierz
+        // -> mode=1, warunek rozkazow PPM na mapie, game/battle.cpp:1687)
         if (POL_BattleDbg())
-          fprintf(stderr, "PORT: BATTLE: zaznaczono: nrb=%d nrp=%d (IFF=%d) "
-                          "%s\n",
-                  nrb, nrp, bb,
-                  (nrp > 3 || nrb > 19) ? "zolnierz -> mouseMode=1"
-                                        : "pracownik/budynek -> mouseMode=0");
-        if (nrp > 3 || nrb > 19) // jeden z zolnierzy
+          fprintf(stderr, "PORT: BATTLE: zaznaczono: nr=%lld b=%d slot=%lld "
+                          "(IFF=%d) %s\n",
+                  place[x][y], (int)NR_BUILD(place[x][y]),
+                  (long long)NR_SLOT(place[x][y]), bb,
+                  ((place[x][y] & NR_CASTLE) || NR_SLOT(place[x][y]) > 3)
+                      ? "zolnierz -> mouseMode=1"
+                      : "pracownik/budynek -> mouseMode=0");
+        nrb = (int)NR_BUILD(place[x][y]);
+        nrp = (int)NR_SLOT(place[x][y]);
+        if ((place[x][y] & NR_CASTLE) ||
+            nrp > 3) // jeden z zolnierzy
         {
           if (!bb)
             mouseMode = 1; // tylko dla naszych
           select.co = 1;
-          if (nrb < 20) {
-            selectM = &castle[bb].b[nrb].m[nrp - 4];
-            select.nrm = nrp - 4;
-            selectM->wybrany = 1;
-          } else {
-            nrp = (place[x][y] & 0x00ff) - 200;
-            nrb = 20;
+          if (place[x][y] & NR_CASTLE) { // jednostka zamku
+            nrp = nrb;
+            nrb = MaxBuildings; // znacznik zamku (stare 20)
             select.nrm = nrp;
             selectM = &castle[bb].m[nrp];
+            selectM->wybrany = 1;
+          } else { // osoba w budynku
+            selectM = &castle[bb].b[nrb].m[nrp - 4];
+            select.nrm = nrp - 4;
             selectM->wybrany = 1;
           }
           select.nrb = nrb;
@@ -4766,8 +4907,8 @@ void ZaznaczObiekt(int x1, int y1, int x2, int y2,
         } else {
           mouseMode = 0;
           select.co = 0; // budynek
-          if (nrb > 19)
-            return;         // nie powinno nigdy wystapic
+          if (nrb >= MaxBuildings)
+            return; // nie powinno nigdy wystapic
           select.nrb = nrb; // nr budynku
           selectB = &castle[bb].b[nrb];
           if (Msg.dzwiek < 19) {
@@ -4776,7 +4917,7 @@ void ZaznaczObiekt(int x1, int y1, int x2, int y2,
             Msg.Y = ScreenY;
           }
           if (select.IFF == master) {
-            ShowPanel(select.IFF, selectB->type + 19, castle[0].milk,
+            ShowPanel(select.IFF, selectB->type + 19, (int)castle[0].milk,
                       selectB->maxfood - selectB->food, 0);
           } else
             ShowPanel(0, 0, 0, 0, 0);
@@ -4808,40 +4949,35 @@ void ZaznaczObiekt(int x1, int y1, int x2, int y2,
     wybrany1 = 0;
     for (x = x1; x <= x2; x++)
       for (y = y1; y <= y2; y++)
-        if (place[x][y] > 255 && place[x][y] < 768) {
-          aa = place[x][y] & 0x00ff;
-          bb = (place[x][y] >> 8);
-          if (bb == 1) // tylko nasi
+        // PORT: maskowe; zaznaczamy tez jednostki zamku (NR_CASTLE bit 27)
+        if (POL_NRENC(place[x][y]) && NR_IFF(place[x][y]) == 1) { // tylko nasi
+          nrb = (int)NR_BUILD(place[x][y]);
+          nrp = (int)NR_SLOT(place[x][y]);
+          if ((place[x][y] & NR_CASTLE) || nrp > 3) // jeden z zolnierzy
           {
-            nrb = aa / 10;       // nr budynku
-            nrp = aa - nrb * 10; // nr postaci
-
-            if (nrp > 3 || nrb > 19) // jeden z zolnierzy
-            {
-              if (!wybrany1) {
-                castle[0].DisableUnits();
-                castle[1].DisableUnits();
-              }
-
-              if (wybrany1)
-                grupa = 1;
-              wybrany1++;
-              select.IFF = 0;
-              mouseMode = 1; // tylko dla naszych
-              select.co = 1;
-              if (nrb < 20) {
-                selectM = &castle[0].b[nrb].m[nrp - 4];
-                select.nrm = nrp - 4;
-                selectM->wybrany = 1;
-              } else {
-                nrp = aa - 200;
-                nrb = 20;
-                select.nrm = nrp;
-                selectM = &castle[0].m[nrp];
-                selectM->wybrany = 1;
-              }
-              select.nrb = nrb;
+            if (!wybrany1) {
+              castle[0].DisableUnits();
+              castle[1].DisableUnits();
             }
+
+            if (wybrany1)
+              grupa = 1;
+            wybrany1++;
+            select.IFF = 0;
+            mouseMode = 1; // tylko dla naszych
+            select.co = 1;
+            if (place[x][y] & NR_CASTLE) { // jednostka zamku m[nrb]
+              nrp = nrb;
+              nrb = MaxBuildings; // znacznik zamku (stare 20)
+              select.nrm = nrp;
+              selectM = &castle[0].m[nrp];
+              selectM->wybrany = 1;
+            } else { // osoba w budynku
+              selectM = &castle[0].b[nrb].m[nrp - 4];
+              select.nrm = nrp - 4;
+              selectM->wybrany = 1;
+            }
+            select.nrb = nrb;
           }
         }
     if (grupa && selectM->type && selectM->type < 8) {

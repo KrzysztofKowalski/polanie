@@ -86,7 +86,7 @@ extern char drive[4];
 // PORT: Fix 18 (ikona naprawy przy pelnym hp) - ShowPanel zaglada do
 // zaznaczonego robotnika i celu jego rozkazu 8 (place/selectM/castle z
 // battle.cpp; mover.h daje klasy Mover1/Building).
-extern int place[MaxX][MaxY];
+extern long long place[MaxX][MaxY]; // PORT: int64 - zakodowane nr
 extern class Castle castle[2];
 extern class Mover1 *selectM;
 //====== Deklaracje funkcji ==================
@@ -1190,11 +1190,13 @@ void ShowPanel(int iff, int co, int max, int food,
   // Budynek uszkodzony, w budowie (exist 3/4) i ruina - bez zmian.
   if (co == 1 && button == 3 && selectM != NULL) {
     class Building *pol_b = NULL;
-    int pol_p = place[selectM->xe][selectM->ye];
-    if (pol_p > 255 && pol_p < 768) {
-      int pol_side = (pol_p >> 8) - 1;
-      int pol_nrb = (pol_p & 0xff) / 10;
-      if (pol_side >= 0 && pol_side < 2 && pol_nrb >= 0 && pol_nrb < 20)
+    long long pol_p = place[selectM->xe][selectM->ye];
+    // PORT: maskowe rozpoznanie budynku z oplotu (stare IFF*256+Nr*10+off)
+    if (POL_NRENC(pol_p) && !(pol_p & NR_CASTLE)) {
+      int pol_side = NR_IFF(pol_p) - 1;
+      long long pol_nrb = NR_BUILD(pol_p);
+      if (pol_side >= 0 && pol_side < 2 && pol_nrb >= 0 &&
+          pol_nrb < MaxBuildings)
         pol_b = &castle[pol_side].b[pol_nrb];
     }
     if (pol_b != NULL && pol_b->exist == 1 && pol_b->hp >= pol_b->maxhp)
@@ -1303,8 +1305,9 @@ void ShowMainMenu(void) {
 //////////////////////////////////////////////////////////////////////////
 void ShowSubMenu(void) {
   int Ty[5] = {33, 60, 90, 117, 145};
-  char *txt[5] = {"Zapisz gr$", "Wczytaj gr$", "Powt%rz wypraw$",
-                  "Powr%t do gry", "Koniec gry"};
+  // PORT: const char* - literaly nie moga trafiac do char* (clang -Werror)
+  const char *txt[5] = {"Zapisz gr$", "Wczytaj gr$", "Powt%rz wypraw$",
+                        "Powr%t do gry", "Koniec gry"};
 
   DownPalette(1);
   LoadExtendedPalette(1);
@@ -1315,7 +1318,8 @@ void ShowSubMenu(void) {
   PressButton(3, 1);
   PressButton(4, 1);
   PressButton(5, 1);
-  for (char i = 0; i < 5; i++) {
+  // PORT: int zamiast char - i indeksuje tablice (clang -Wchar-subscripts)
+  for (int i = 0; i < 5; i++) {
     CenterText13h(99, Ty[i] - 1, 99 + 126, Ty[i] + 13, txt[i], 1);
     CenterText13h(100, Ty[i], 100 + 126, Ty[i] + 14, txt[i], 1);
     CenterText13h(100, Ty[i] - 1, 100 + 126, Ty[i] + 13, txt[i], 255);
@@ -1328,7 +1332,8 @@ void ShowSubMenu(void) {
 void ShowEndMenu(void) {
   int Ty[5] = {33, 60, 90, 117, 145};
   // char *txt[5]={" "," "," ","Ja","Nein"};
-  char *txt[5] = {"", "", "Koniec gry ?", "Tak", "Nie"};
+  // PORT: const char* - literaly nie moga trafiac do char* (clang -Werror)
+  const char *txt[5] = {"", "", "Koniec gry ?", "Tak", "Nie"};
 
   DownPalette(1);
   LoadExtendedPalette(1);
@@ -1349,7 +1354,8 @@ void ShowEndMenu(void) {
   }
   PutImage13h(110, 144, latka, 0);
   PressButton(5, 1);
-  for (char i = 0; i < 5; i++) {
+  // PORT: int zamiast char - i indeksuje tablice (clang -Wchar-subscripts)
+  for (int i = 0; i < 5; i++) {
     CenterText13h(109, Ty[i] - 1, 109 + 106, Ty[i] + 13, txt[i], 1);
     CenterText13h(110, Ty[i], 110 + 106, Ty[i] + 14, txt[i], 1);
     CenterText13h(110, Ty[i] - 1, 110 + 106, Ty[i] + 13, txt[i], 255);
@@ -1534,7 +1540,9 @@ void ShowPicture(int nr, int b) {
     memset(VirtualScreen, 0, 32000);
   else
     memset((void *)(VirtualScreen + 32000), 0, 32000);
-  int t = LoadToScreen13h(nr, b);
+  // PORT: wynik LoadToScreen13h ignorowany (jak w oryginale) - (void) uwaza
+  // -Werror przy --unused-but-set-variable/inne
+  (void)LoadToScreen13h(nr, b);
 }
 ///////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////
@@ -1553,4 +1561,9 @@ void ShowPicture2(int nr) {
 }
 ///////////////////////////////////////////////////////////////
 
-void Haslo(char *haslo, char nr) {}
+void Haslo(char *haslo, char nr) {
+  // PORT: hasla scenariuszy nie sa obslugiwane (stub portu), celowo
+  // nieuzywane parametry
+  (void)haslo;
+  (void)nr;
+}
