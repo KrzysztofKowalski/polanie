@@ -36,7 +36,8 @@ static const int POL_COW_HEAL_INTERVAL = 48; // klatek miedzy krokami krow
 // -------------------------------------------------------------------------
 
 // Zapas, od ktorego zamek zaczyna leczyc: 75% pojemnosci.
-int POL_HealThreshold(int maxmilk) {
+// PORT: int64 - zamkowe mleko/maxmilk (skala zapasow)
+long long POL_HealThreshold(long long maxmilk) {
   return maxmilk * POL_HEAL_PROCENT / 100;
 }
 
@@ -44,7 +45,9 @@ int POL_HealThreshold(int maxmilk) {
 // pobraniu. Leczy (+POL_HEAL_HP, clamp do maxhp) i odejmuje POL_HEAL_MLEKO
 // TYLKO gdy jednostka jest ranna (hp < maxhp) i jest co pobrac (milk > 0).
 // Przy pelnym hp: hp bez zmian i mleko nietkniete.
-int POL_HealStep(int hp, int maxhp, int milk, int *milkOut) {
+// PORT: milk/milkOut int64 (skala zapasow), hp/maxhp zostaja int (hp <= 300)
+long long POL_HealStep(int hp, int maxhp, long long milk,
+                       long long *milkOut) {
   *milkOut = milk; // domyslnie: zapas nietkniety
   if (hp >= maxhp || milk <= 0)
     return hp;
@@ -84,8 +87,8 @@ void POL_UnitHealTick(void) {
         m.hp = POL_CowHealStep(m.hp, m.maxhp);
       }
 
-      // krowy siedzace w budynkach (b[20]/m[6] - rozmiary tablic z mover.h)
-      for (int k = 0; k < 20; k++) {
+      // krowy siedzace w budynkach (b[MaxBuildings]/m[6] - tablice z mover.h)
+      for (int k = 0; k < MaxBuildings; k++) {
         if (!c.b[k].exist)
           continue;
         for (int j = 0; j < 6; j++) {
@@ -106,7 +109,7 @@ void POL_UnitHealTick(void) {
   klatka = 0;
 
   Castle &c = castle[0];
-  int prog = POL_HealThreshold(c.maxmilk);
+  long long prog = POL_HealThreshold(c.maxmilk);
 
   // za malo zapasow: zamek nic nie wydaje, ranni czekaja
   if (c.milk < prog)
@@ -120,13 +123,13 @@ void POL_UnitHealTick(void) {
       continue;
     if (m.hp >= m.maxhp)
       continue;
-    int milk = c.milk;
+    long long milk = c.milk;
     m.hp = POL_HealStep(m.hp, m.maxhp, milk, &milk);
     c.milk = milk;
   }
 
-  // ranni siedzacy w budynkach (b[20]/m[6] - rozmiary tablic z game/mover.h)
-  for (int k = 0; k < 20 && c.milk >= prog; k++) {
+  // ranni siedzacy w budynkach (b[MaxBuildings]/m[6] - tablice z game/mover.h)
+  for (int k = 0; k < MaxBuildings && c.milk >= prog; k++) {
     if (!c.b[k].exist)
       continue;
     for (int j = 0; j < 6 && c.milk >= prog; j++) {
@@ -135,7 +138,7 @@ void POL_UnitHealTick(void) {
         continue;
       if (m.hp >= m.maxhp)
         continue;
-      int milk = c.milk;
+      long long milk = c.milk;
       m.hp = POL_HealStep(m.hp, m.maxhp, milk, &milk);
       c.milk = milk;
     }

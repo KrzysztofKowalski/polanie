@@ -33,7 +33,7 @@ char *Buttons[4]; // moze byc [8] bo save i smenu to te same przyciski
 char drive[4] = "./"; // PORT: dane gry czytane z katalogu biezacego /
                       // game-linux/port/port_fopen.cpp (POLANIE_DATA)
 //======zmienne extern===========
-extern volatile int licznik; // PORT: volatile - pisany z callbacku zegara
+extern volatile long long licznik; // PORT: int64 - czas gry/czas bitwy
 extern char prowintion[25];
 extern char prowintionInit[25];
 // extern char hasla[10];

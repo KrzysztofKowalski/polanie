@@ -31,12 +31,13 @@
 /////////////////////////////////////////////////////////////////////////
 //---------Zmienne----------------------------------------------------------
 /////////////////////////////////////////////////////////////////////////////
-extern int xpastw;
-extern int ypastw;
+extern long long xpastw; // PORT: int64 - wspolrzedne mapy
+extern long long ypastw;
 extern int level;
 inline int abs(int x) { return x > 0 ? x : -x; }
 
-int Place[MaxX][MaxY];
+// PORT: int64 - dlugosc sciezki do pola mapy (przy 4096^2 do 16.7M)
+long long Place[MaxX][MaxY];
 
 /*------------dane o postaciach-------------------------------------------------
                     |-----------------s_range
@@ -118,12 +119,13 @@ char Phase[13][19] = {
 //-------Zmienne extern -----------------------------------------------
 extern int PlaceUsed;
 extern int diff;
-extern int master, drzewa, drzewa0;
+extern int master;
+extern long long drzewa, drzewa0; // PORT: int64 - licznik drzew
 extern int color1, color2;
 extern char xleczenie, yleczenie;
 
 extern int attack[MaxX][MaxY];
-extern int place[MaxX][MaxY];
+extern long long place[MaxX][MaxY]; // PORT: int64 - zakodowane nr
 extern char placeN[MaxX][MaxY];
 extern int placeG[MaxX][MaxY];
 extern int Xe[20], Ye[16]; // world
@@ -137,68 +139,111 @@ struct MMessage Msg;
 extern class Castle castle[2];
 extern void Droga(int, int, int);
 
-int Who(int nr) // 0 nikt 1-nasz wojownik 2-nasz budynek 3-ich wojownik 4-ich
+// PORT: BFS - wspolna kolejka (dawne unsigned char kolejka[2000] nie miescila
+// wspolrzednych >255 i tylko 1000 wezlow). Inicjalizacja: POL_KolejkaInit
+// w InitBattle zaraz po ustaleniu mapX/mapY (battle.cpp).
+static int *pol_kolejka = NULL;
+static long long pol_kolejkaN = 0; // PORT: int64 - rozmiar bufora
+void POL_KolejkaInit(long long mapArea) {
+  long long n = 2 * mapArea;
+  if (pol_kolejkaN != n) {
+    delete[] pol_kolejka;
+    pol_kolejka = new int[(size_t)n];
+    pol_kolejkaN = n;
+  }
+}
+#define POL_KOL_MAX (pol_kolejkaN - 4) // PORT: int64
+
+// PORT: migracja nr z starego kodowania (IFF*256 + Nr*10 + slot) do nowego
+// (NR_CASTLE / IFF << 28 / Nr << 4 itd.) - czytanie STARYCH save'ow, ktore
+// zapisaly zakodowane nr. Wartosci >= 2^27 to juz nowe kodowanie (idempotent),
+// drzewa (768+indeks) i znaczniki mapy (0,1,2,10) sa niezakodowane - zostaja.
+int POL_NrToNew(long long v) {
+  if ((v & NR_ENC) || v < 256 || v >= 768)
+    return v;
+  int aa = v & 0xff;
+  int side = (v >> 8) - 1;
+  int nrb = aa / 10;       // nr budynku
+  int nrp = aa - nrb * 10; // nr postaci
+  if (nrb < 20)
+    return NR_ENC | (side << 28) | (nrb << 4) |
+           nrp; // pole budynku (0-3) / osoba (4-9)
+  int mi = aa - 200; // jednostka zamku (aa 200..239)
+  if (mi < 0 || mi >= MaxUnitsInCastle)
+    return v;
+  return NR_ENC | NR_CASTLE | (side << 28) | (mi << 4);
+}
+
+int Who(long long nr) // 0 nikt 1-nasz wojownik 2-nasz budynek 3-ich wojownik 4-ich
                 // budynek
 {
-  int aa = nr & 0x00ff;
-  int bb = nr >> 8;
-  if (bb < 1 || bb > 2)
+  if (!POL_NRENC(nr)) // drzewa i znaczniki mapy nie sa kodowane
     return 0;
-  bb--;
-  int nrb = aa / 10;       // nr budynku
-  int nrp = aa - nrb * 10; // nr postaci
-  if (nrp > 3 || nrb > 19) // jeden z zolnierzy
-  {
-    if (bb)
-      return 3; // ich zolnierz
-    else
-      return 1; // nasz zolnierz
+  int iff = NR_IFF(nr) - 1;
+  if (iff < 0 || iff > 1)
+    return 0;
+  if (nr & NR_CASTLE) { // jednostka zamku
+    int mi = NR_BUILD(nr);
+    if (mi < 1 || mi >= MaxUnitsInCastle)
+      return 0;
+    return iff ? 3 : 1;
   }
-  if (bb)
-    return 4; // ich budynek
-  else
-    return 2; // nasz budynek
+  int nrb = NR_BUILD(nr), nrp = NR_SLOT(nr);
+  if (nrb >= MaxBuildings)
+    return 0;
+  if (nrp > 3) // osoba w budynku (sloty 4-9)
+  {
+    if (nrp > 9)
+      return 0;
+    return iff ? 3 : 1;
+  }
+  return iff ? 4 : 2; // pole budynku
 }
-int Type(int nr) // 0 nikt 1-nasz wojownik 3-nasz budynek 2-ich wojownik 4-ich
+int Type(long long nr) // 0 nikt 1-nasz wojownik 3-nasz budynek 2-ich wojownik 4-ich
                  // budynek
 {
-  int aa = nr & 0x00ff;
-  int bb = nr >> 8;
-  if (bb < 1 || bb > 2)
+  if (!POL_NRENC(nr))
     return 0;
-  bb--;
-  int nrb = aa / 10;       // nr budynku
-  int nrp = aa - nrb * 10; // nr postaci
-  if (nrp > 3 || nrb > 19) // jeden z zolnierzy
-  {
-    if (nrb < 20)
-      return castle[bb].b[nrb].m[nrp - 4].type;
-    else
-      return castle[bb].m[(nr & 0xff) - 200].type;
+  int iff = NR_IFF(nr) - 1;
+  if (iff < 0 || iff > 1)
+    return 0;
+  if (nr & NR_CASTLE) {
+    int mi = NR_BUILD(nr);
+    if (mi < 1 || mi >= MaxUnitsInCastle)
+      return 0;
+    return castle[iff].m[mi].type;
   }
-  return castle[bb].b[nrb].type + 20;
+  int nrb = NR_BUILD(nr), nrp = NR_SLOT(nr);
+  if (nrb >= MaxBuildings)
+    return 0;
+  if (nrp > 3) {
+    if (nrp > 9)
+      return 0;
+    return castle[iff].b[nrb].m[nrp - 4].type;
+  }
+  return castle[iff].b[nrb].type + 20;
 }
-Mover1 *Pointer(int nr) {
-  int aa = nr & 0x00ff;
-  int bb = nr >> 8;
-  if (bb < 1 || bb > 2)
+Mover1 *Pointer(long long nr) {
+  if (!POL_NRENC(nr))
     return NULL;
-  bb--;
-  int nrb = aa / 10;       // nr budynku
-  int nrp = aa - nrb * 10; // nr postaci
-  if (nrp > 3 || nrb > 19) // jeden z zolnierzy
-  {
-    if (nrb < 20) {
-      // char ss[20];
-      // sprintf(ss,"Pointer c:%d, b:%d, p:%d,
-      // u:%d",bb,nrb,nrp-4,castle[bb].b[nrb-1].m[nrp-4].udder);
-      // strcpy(Msg.msg,ss);
-      // Msg.licznik=20;
-      return &castle[bb].b[nrb].m[nrp - 4];
-    } else
-      return &castle[bb].m[(nr & 0xff) - 200];
+  int iff = NR_IFF(nr) - 1;
+  if (iff < 0 || iff > 1)
+    return NULL;
+  if (nr & NR_CASTLE) {
+    int mi = NR_BUILD(nr);
+    if (mi < 1 || mi >= MaxUnitsInCastle)
+      return NULL;
+    return &castle[iff].m[mi];
   }
-  return NULL;
+  int nrb = NR_BUILD(nr), nrp = NR_SLOT(nr);
+  if (nrb >= MaxBuildings)
+    return NULL;
+  if (nrp > 3) {
+    if (nrp > 9)
+      return NULL;
+    return &castle[iff].b[nrb].m[nrp - 4];
+  }
+  return NULL; // pole budynku
 }
 /////////////////////////////////////////////////////////////////
 //
@@ -211,7 +256,7 @@ void NewCow(int nr) {
     return;
   // oldcow->wybrany=1;
   int side = 1;
-  if (nr > 512 && nr < 768)
+  if (NR_IFF(nr) == 2)
     side = 0;
 
   for (int i = 2; i < 38; i++) {
@@ -220,7 +265,7 @@ void NewCow(int nr) {
       oldcow->exist = 0;
       castle[side].m[i].Init(oldcow->type, oldcow->x, oldcow->y, 1, 10);
       castle[side].m[i].SetIFF(side + 1);
-      castle[side].m[i].SetNr(i + ((side + 1) << 8) + 200);
+      castle[side].m[i].SetNr(NR_ENC | NR_CASTLE | (side << 28) | (i << 4));
       castle[side].m[i].hp = oldcow->hp;
       castle[side].m[i].maxhp = oldcow->maxhp;
       castle[side].m[i].udder = oldcow->udder;
@@ -242,7 +287,7 @@ void NewCow(int nr) {
       return;
     }
   }
-  for (i = 0; i < 20; i++)
+  for (i = 0; i < MaxBuildings; i++)
     for (int j = 0; j < 6; j++) {
       if (castle[side].b[i].type == 2 && castle[side].b[i].exist == 1)
         if (!(castle[side].b[i].m[j].exist)) {
@@ -254,7 +299,10 @@ void NewCow(int nr) {
           castle[side].b[i].m[j].Init(oldcow->type, oldcow->x, oldcow->y, 1,
                                       10);
           castle[side].b[i].m[j].SetIFF(side + 1);
-          castle[side].b[i].m[j].SetNr(i * 10 + j + 4 + ((side + 1) << 8));
+          // PORT: slot osoby w budynku = j+4 (bity 0-3), nie surowe j -
+          // inaczej dekodery by rozpoznaly m[0..3] jako pole budynku
+          castle[side].b[i].m[j].SetNr(NR_ENC | (side << 28) | (i << 4) |
+                                       (j + 4));
           castle[side].b[i].m[j].hp = oldcow->hp;
           castle[side].b[i].m[j].maxhp = oldcow->maxhp;
           castle[side].b[i].m[j].udder = oldcow->udder;
@@ -284,14 +332,14 @@ void NewCow(int nr) {
 void FindCow(int x, int y, int *xe, int *ye) {
   int i, j, startk, stopk;
   int ii, jj;
-  unsigned char kolejka[2000];
-  for (j = 0; j < MaxY; j++)
-    for (i = 0; i < MaxX; i++) {
+  int *kolejka = pol_kolejka; // PORT: int zamiast unsigned char[2000]
+  for (j = 0; j < mapY; j++)
+    for (i = 0; i < mapX; i++) {
       Place[i][j] = 1;
-      if ((i > 0) && (j > 0) && (i < MaxX - 1) && (j < MaxY - 1)) {
+      if ((i > 0) && (j > 0) && (i < mapX - 1) && (j < mapY - 1)) {
         if (!place[i][j])
           Place[i][j] = 1000;
-        if (place[i][j] > 255 && place[i][j] < 500) {
+        if (POL_NRENC(place[i][j]) && NR_IFF(place[i][j]) == 1) {
           ii = Who(place[i][j]);
           if (ii == 1) // nasz wojownik
           {
@@ -312,7 +360,7 @@ void FindCow(int x, int y, int *xe, int *ye) {
     if (stopk != startk) {
       i = kolejka[stopk];
       j = kolejka[stopk + 1];
-      if (stopk < 1950)
+      if (stopk < POL_KOL_MAX)
         stopk += 2;
       else
         stopk = 0;
@@ -326,11 +374,11 @@ void FindCow(int x, int y, int *xe, int *ye) {
           return;
         }
         if (Place[ii][jj] == 1000)
-          if (ii > 0 && ii < MaxX - 1 && jj > 0 && jj < MaxY - 1) {
+          if (ii > 0 && ii < mapX - 1 && jj > 0 && jj < mapY - 1) {
             Place[ii][jj] = 1;
             kolejka[startk] = ii;
             kolejka[startk + 1] = jj;
-            if (startk < 1950)
+            if (startk < POL_KOL_MAX)
               startk += 2;
             else
               startk = 0;
@@ -348,17 +396,18 @@ void FindCow(int x, int y, int *xe, int *ye) {
 void FindEnemy(int x, int y, int *xe, int *ye, int *distance) {
   int i, j, startk, stopk;
   int ii, jj;
-  unsigned char kolejka[2000];
-  for (j = 0; j < MaxY; j++)
-    for (i = 0; i < MaxX; i++) {
+  int *kolejka = pol_kolejka; // PORT: int zamiast unsigned char[2000]
+  for (j = 0; j < mapY; j++)
+    for (i = 0; i < mapX; i++) {
       Place[i][j] = 1;
       if (!place[i][j])
         Place[i][j] = 1000;
-      if (place[i][j] > 255 && place[i][j] < 500 && !(*distance))
+      if (POL_NRENC(place[i][j]) && NR_IFF(place[i][j]) == 1 && !(*distance))
         Place[i][j] = 1001;
-      if (place[i][j] > 511 && place[i][j] < 512 + 255 && (*distance == 1))
+      if (POL_NRENC(place[i][j]) && NR_IFF(place[i][j]) == 2 && (*distance == 1))
         Place[i][j] = 1001;
-      if ((place[i][j] > drzewa0) && ((*distance) == 2))
+      if ((place[i][j] > drzewa0 && !POL_NRENC(place[i][j])) &&
+          ((*distance) == 2))
         Place[i][j] = 1001;
     }
 
@@ -372,7 +421,7 @@ void FindEnemy(int x, int y, int *xe, int *ye, int *distance) {
     if (stopk != startk) {
       i = kolejka[stopk];
       j = kolejka[stopk + 1];
-      if (stopk < 1950)
+      if (stopk < POL_KOL_MAX)
         stopk += 2;
       else
         stopk = 0;
@@ -386,11 +435,11 @@ void FindEnemy(int x, int y, int *xe, int *ye, int *distance) {
           return;
         }
         if (Place[ii][jj] == 1000)
-          if (ii > 0 && ii < MaxX - 1 && jj > 0 && jj < MaxY - 1) {
+          if (ii > 0 && ii < mapX - 1 && jj > 0 && jj < mapY - 1) {
             Place[ii][jj] = 1;
             kolejka[startk] = ii;
             kolejka[startk + 1] = jj;
-            if (startk < 1950)
+            if (startk < POL_KOL_MAX)
               startk += 2;
             else
               startk = 0;
@@ -412,11 +461,11 @@ void FindHolyPlace(int *xe, int *ye) {
     return;
   int x = *xe;
   int y = *ye;
-  unsigned char kolejka[2000];
-  for (j = 0; j < MaxY; j++)
-    for (i = 0; i < MaxX; i++) {
+  int *kolejka = pol_kolejka; // PORT: int zamiast unsigned char[2000]
+  for (j = 0; j < mapY; j++)
+    for (i = 0; i < mapX; i++) {
       Place[i][j] = 1; // zajete
-      if ((i > 0) && (j > 0) && (i < MaxX - 1) && (j < MaxY - 1)) {
+      if ((i > 0) && (j > 0) && (i < mapX - 1) && (j < mapY - 1)) {
         if (!(place[i][j]))
           Place[i][j] = 1000; // wolne
         if (placeG[i][j] == 256)
@@ -434,7 +483,7 @@ void FindHolyPlace(int *xe, int *ye) {
     if (stopk != startk) {
       i = kolejka[stopk];
       j = kolejka[stopk + 1];
-      if (stopk < 1950)
+      if (stopk < POL_KOL_MAX)
         stopk += 2;
       else
         stopk = 0;
@@ -448,11 +497,11 @@ void FindHolyPlace(int *xe, int *ye) {
           return;
         }
         if (Place[ii][jj] == 1000) {
-          if (ii > 0 && ii < MaxX - 1 && jj > 0 && jj < MaxY - 1) {
+          if (ii > 0 && ii < mapX - 1 && jj > 0 && jj < mapY - 1) {
             Place[ii][jj] = 1;
             kolejka[startk] = ii;
             kolejka[startk + 1] = jj;
-            if (startk < 1950)
+            if (startk < POL_KOL_MAX)
               startk += 2;
             else
               startk = 0;
@@ -706,7 +755,7 @@ void Missile::Move() {
       Msg.Y = yt;
     }
     if (type == 7 || type == 5 || type == 1) {
-      if (place[xt][yt] > 768)
+      if (POL_TREE(place[xt][yt]))
         dx = 1;
       else
         dx = 2;
@@ -879,16 +928,17 @@ void Mover1::SetCommand(int Nr) {
 //----------------------------------
 //----------------------------------
 void Mover1::Labeling() {
-  int i, j, mini, minj, min, startk, stopk;
+  int i, j, mini, minj, startk, stopk;
+  long long min; // PORT: int64 - wartosci Place[]
 
-  unsigned char ii, jj;
-  unsigned char kolejka[2000];
+  int ii, jj;               // PORT: int zamiast unsigned char (mapa >255)
+  int *kolejka = pol_kolejka; // PORT: jw. - wspolna kolejka
   delay = maxdelay;
   if (PlaceUsed > 5 && type)
     return;
   PlaceUsed++;
-  for (j = 0; j < MaxY; j++)
-    for (i = 0; i < MaxX; i++)
+  for (j = 0; j < mapY; j++)
+    for (i = 0; i < mapX; i++)
       if (place[i][j] == 0) {
         Place[i][j] = 1000;
         if (placeN[i][j] > 10 && placeN[i][j] < 100)
@@ -907,7 +957,7 @@ void Mover1::Labeling() {
     if (stopk != startk) {
       i = kolejka[stopk];
       j = kolejka[stopk + 1];
-      if (stopk < 1950)
+      if (stopk < POL_KOL_MAX)
         stopk += 2;
       else
         stopk = 0;
@@ -917,11 +967,11 @@ void Mover1::Labeling() {
     for (jj = j - 1; jj < j + 2; jj++)
       for (ii = i - 1; ii < i + 2; ii++)
         if (Place[ii][jj] < 1001 && Place[ii][jj] > min + 1) {
-          if (ii > 0 && ii < MaxX - 1 && jj > 0 && jj < MaxY - 1) {
+          if (ii > 0 && ii < mapX - 1 && jj > 0 && jj < mapY - 1) {
             Place[ii][jj] = min + 1;
             kolejka[startk] = ii;
             kolejka[startk + 1] = jj;
-            if (startk < 1950)
+            if (startk < POL_KOL_MAX)
               startk += 2;
             else
               startk = 0;
@@ -1079,12 +1129,12 @@ void Mover1::Move() {
   inmove = 0;
   if (xe < 1)
     xe = 1;
-  if (xe >= MaxX)
-    xe = MaxX - 1;
+  if (xe >= mapX)
+    xe = mapX - 1;
   if (ye < 1)
     ye = 1;
-  if (ye >= MaxY)
-    ye = MaxY - 1;
+  if (ye >= mapY)
+    ye = mapY - 1;
   if ((x == xe) && (y == ye)) {
     commandN = 0;
     if (!type && command == 3) {
@@ -1206,12 +1256,16 @@ int Mover1::LookAround() {
     command = 2;
     return 1;
   }
-  int i, j, k = 1, d = 0, iff;
+  int i, j, k = 1, d = 0;
   int NoOfEnemies = 0;
   int NoOfOurs = 0;
   if (IFF == 2 && type == 10) // pastuch
   {
-    FindCow(x, y, &xe, &ye);
+    // PORT: helpery sciezek daja int*, pomost - wyniki dziala w 31 bitach
+    int pol_x = (int)xe, pol_y = (int)ye;
+    FindCow(x, y, &pol_x, &pol_y);
+    xe = pol_x;
+    ye = pol_y;
     if (xe != x || y != ye) {
       target = place[xe][ye];
       commandN = 2;
@@ -1231,14 +1285,14 @@ int Mover1::LookAround() {
       return 0;
   }*/
 
-  iff = IFF << 8;
+  int iff = NR_IFF(nr); // PORT: dawne if = IFF << 8 (bez maski 8-bit)
   ispath = 0;
   target = 0;
   if (IFF == 2 && hp > (maxhp - 20)) // komputerowy
   {
     k = s_range + drange;
-    for (i = x - k; i <= x + k && i < MaxX - 1; i++)
-      for (j = y - k + 1; j <= y + k - 1 && j < MaxY - 1; j++) {
+    for (i = x - k; i <= x + k && i < mapX - 1; i++)
+      for (j = y - k + 1; j <= y + k - 1 && j < mapY - 1; j++) {
         switch (Who(place[i][j])) {
         case 1:
           NoOfEnemies++;
@@ -1250,19 +1304,23 @@ int Mover1::LookAround() {
       }
     if (NoOfEnemies > 2 && NoOfOurs == 1) {
       int distance = 1;
-      FindEnemy(x, y, &xe, &ye, &distance);
+      // PORT: pomost int* (helpery sciezek) <-> long long (wspolrzedne mapy)
+      int pol_x = (int)xe, pol_y = (int)ye;
+      FindEnemy(x, y, &pol_x, &pol_y, &distance);
+      xe = pol_x;
+      ye = pol_y;
       commandN = 1; // move
       return 0;
     }
   }
   for (k = 1; k <= s_range + drange; k++) {
-    for (i = x - k; i <= x + k && i < MaxX - 1; i++)
-      for (j = y - k; j <= y + k && j < MaxY - 1; j++) {
-        if (i > 0 && i < MaxX - 1 && j > 0 && j < MaxY - 1) {
+    for (i = x - k; i <= x + k && i < mapX - 1; i++)
+      for (j = y - k; j <= y + k && j < mapY - 1; j++) {
+        if (i > 0 && i < mapX - 1 && j > 0 && j < mapY - 1) {
           if (place[i][j] && place[i][j] != nr) {
-            d = place[i][j];
+            d = (int)place[i][j];
             int dd = Who(d);
-            if (((d & 0xff00) != iff) && (dd == 1 || dd == 3)) { // postac
+            if ((dd == 1 || dd == 3) && NR_IFF(d) != iff) { // postac
               target = d;
               if (type != 10)
                 return 1;
@@ -1279,12 +1337,13 @@ int Mover1::LookAround() {
   if (type == 11)
     return 0; // Mag tez nie
   for (k = 1; k <= s_range + drange; k++) {
-    for (i = x - k; i <= x + k && i < MaxX - 1; i++)
-      for (j = y - k + 1; j <= y + k - 1 && j < MaxY - 1; j++) {
-        if (i > 0 && i < MaxX - 1 && j > 0 && j < MaxY - 1) {
+    for (i = x - k; i <= x + k && i < mapX - 1; i++)
+      for (j = y - k + 1; j <= y + k - 1 && j < mapY - 1; j++) {
+        if (i > 0 && i < mapX - 1 && j > 0 && j < mapY - 1) {
           if (place[i][j] && place[i][j] != nr) {
-            d = place[i][j];
-            if (d < 256 + 512 && d > 255 && (d & 0xff00) != iff) {
+            d = (int)place[i][j];
+            // PORT: maskowe: wrogi budynek = zakodowany nr, inna druzyna
+            if (POL_NRENC(d) && NR_IFF(d) != iff) {
               target = d;
               return 1;
             }
@@ -1302,8 +1361,8 @@ int Mover1::LokateTarget() {
     return 0;
   if (place[xe][ye] == target)
     return 1;
-  for (i = 1; i < MaxX - 1; i++)
-    for (j = 1; j < MaxY - 1; j++) {
+  for (i = 1; i < mapX - 1; i++)
+    for (j = 1; j < mapY - 1; j++) {
       if (place[i][j] == target) {
         xe = i;
         ye = j;
@@ -1329,9 +1388,11 @@ int Mover1::Distance() {
 //------------------------------------------------
 void Mover1::Attack() {
   inmove = 0;
-  if (target < 768)
+  // PORT: maskowe progi nr: obiekt zakodowany (nie drzewo) luzuje sciezke,
+  // drzewo (POL_TREE) zostaje celem tylko dla topora/kaplanki
+  if (POL_NRENC(target))
     ispath = 0;
-  if (target > 768 && type != 1 && type != 4) {
+  if (POL_TREE(target) && type != 1 && type != 4) {
     target = 0;
     mainTarget = 0;
   }
@@ -1438,15 +1499,15 @@ void Mover1::Attack() {
       magic -= 20;
     if (type == 11)
       magic -= 20;
-    if (IFF == 2 && place[xe][ye] > 800)
+    if (IFF == 2 && POL_TREE(place[xe][ye]) && place[xe][ye] > 800)
       damage += 20;
     missile.Init(x, y, xe, ye, damage + ddamage[exp >> 4], type);
-    if (IFF == 2 && place[xe][ye] > 800)
+    if (IFF == 2 && POL_TREE(place[xe][ye]) && place[xe][ye] > 800)
       damage -= 20;
-    if ((type == 4 || type == 11) && target > 768) {
+    if ((type == 4 || type == 11) && POL_TREE(target)) {
       mainTarget = 0;
     }
-    if (target < 768 && exp < (15 * 16) - 5) {
+    if (POL_NRENC(target) && exp < (15 * 16) - 5) {
       int kkl = Who(target);
       if (kkl == 3 || IFF == 2) // jezeli nie budynek
       {
@@ -1494,11 +1555,13 @@ void Mover1::Repare() {
   // nr budynku = IFF*256 + Nr*10 + offset; offset < 10, wiec aa/10 = Nr).
   // Ruina (exist==2) tu nie trafia - przy zburzeniu place pol budynku = 0.
   class Building *pol_b = NULL;
-  int pol_p = place[xe][ye];
-  if (pol_p > 255 && pol_p < 768) {
-    int pol_side = (pol_p >> 8) - 1;
-    int pol_nrb = (pol_p & 0xff) / 10;
-    if (pol_side >= 0 && pol_side < 2 && pol_nrb >= 0 && pol_nrb < 20)
+  long long pol_p = place[xe][ye];
+  // PORT: maskowe rozpoznanie budynku z oplotu (stare IFF*256+Nr*10+off);
+  // osoby w budynku (slot 4-9) maja ten sam Nr co budynek, wiec tez trafiaja
+  if (POL_NRENC(pol_p) && !(pol_p & NR_CASTLE)) {
+    int pol_side = NR_IFF(pol_p) - 1;
+    long long pol_nrb = NR_BUILD(pol_p);
+    if (pol_side >= 0 && pol_side < 2 && pol_nrb >= 0 && pol_nrb < MaxBuildings)
       pol_b = &castle[pol_side].b[pol_nrb];
   }
   if (placeN[xe][ye] > 226 || placeG[xe][ye] == 47 ||
@@ -1588,7 +1651,7 @@ void Mover1::Run1() // rycerze
       {
         for (int ii = x - 1; ii <= x + 1; ii++) {
           for (int jj = y - 1; jj <= y + 1; jj++) {
-            if (ii > 0 && jj > 0 && ii < MaxX - 1 && jj < MaxY - 1) {
+            if (ii > 0 && jj > 0 && ii < mapX - 1 && jj < mapY - 1) {
               if (!(place[ii][jj]) && (placeN[ii][jj] < 2)) {
                 xe = ii;
                 ye = jj;
@@ -1700,23 +1763,23 @@ void Mover1::Run1() // rycerze
   {
     commandN = 0;
     Hide();
-    if (place[xe][ye] || xe < 1 || ye < 1 || xe > MaxX - 2 || ye > MaxX - 2)
+    if (place[xe][ye] || xe < 1 || ye < 1 || xe > mapX - 2 || ye > mapY - 2)
       xe += 3; //=0
-    if (place[xe][ye] || xe < 1 || ye < 1 || xe > MaxX - 2 || ye > MaxX - 2)
+    if (place[xe][ye] || xe < 1 || ye < 1 || xe > mapX - 2 || ye > mapY - 2)
       ye += 3; // 1
-    if (place[xe][ye] || xe < 1 || ye < 1 || xe > MaxX - 2 || ye > MaxX - 2)
+    if (place[xe][ye] || xe < 1 || ye < 1 || xe > mapX - 2 || ye > mapY - 2)
       xe -= 3; // 2
-    if (place[xe][ye] || xe < 1 || ye < 1 || xe > MaxX - 2 || ye > MaxX - 2)
+    if (place[xe][ye] || xe < 1 || ye < 1 || xe > mapX - 2 || ye > mapY - 2)
       xe -= 3; // 3
-    if (place[xe][ye] || xe < 1 || ye < 1 || xe > MaxX - 2 || ye > MaxX - 2)
+    if (place[xe][ye] || xe < 1 || ye < 1 || xe > mapX - 2 || ye > mapY - 2)
       ye -= 3; // 4
-    if (place[xe][ye] || xe < 1 || ye < 1 || xe > MaxX - 2 || ye > MaxX - 2)
+    if (place[xe][ye] || xe < 1 || ye < 1 || xe > mapX - 2 || ye > mapY - 2)
       ye -= 3; // 5
-    if (place[xe][ye] || xe < 1 || ye < 1 || xe > MaxX - 2 || ye > MaxX - 2)
+    if (place[xe][ye] || xe < 1 || ye < 1 || xe > mapX - 2 || ye > mapY - 2)
       xe += 3; // 6
-    if (place[xe][ye] || xe < 1 || ye < 1 || xe > MaxX - 2 || ye > MaxX - 2)
+    if (place[xe][ye] || xe < 1 || ye < 1 || xe > mapX - 2 || ye > mapY - 2)
       xe += 3; // 7
-    if (place[xe][ye] || xe < 1 || ye < 1 || xe > MaxX - 2 || ye > MaxX - 2) {
+    if (place[xe][ye] || xe < 1 || ye < 1 || xe > mapX - 2 || ye > mapY - 2) {
       xe = x;
       ye = y;
     }
@@ -1814,8 +1877,8 @@ void Mover1::Run1() // rycerze
         Msg.Y = y;
       }
       int xx, yy, i, j;
-      for (i = 1; i < MaxX; i++)
-        for (j = 1; j < MaxY; j++) {
+      for (i = 1; i < mapX; i++)
+        for (j = 1; j < mapY; j++) {
           xx = abs(x - i);
           yy = abs(y - j);
           if (xx + yy < 18 && yy < 14 && xx < 14 && !placeN[i][j])
@@ -1842,7 +1905,14 @@ void Mover1::Run1() // rycerze
       return;
     }
     target = 2;
-    FindEnemy(x, y, &xe, &ye, &target);
+    // PORT: pomost int* (helpery sciezek) <-> long long (wspolrzedne mapy)
+    {
+      int pol_x = (int)xe, pol_y = (int)ye, pol_t = (int)target;
+      FindEnemy(x, y, &pol_x, &pol_y, &pol_t);
+      xe = pol_x;
+      ye = pol_y;
+      target = pol_t;
+    }
     target = place[xe][ye];
     if (xe == 32 && ye == 32)
       target = 0;
@@ -1887,7 +1957,7 @@ void Mover1::FindGrass() {
     if (x & 1) {
       for (i = x - range; i <= x + range; i++)
         for (j = y - range; j <= y + range; j++)
-          if (i > 0 && j > 0 && i < MaxX - 1 && j < MaxY - 1)
+          if (i > 0 && j > 0 && i < mapX - 1 && j < mapY - 1)
             if (place[i][j] == 0 && placeG[i][j] > max && placeG[i][j] < 9) {
               max = placeG[i][j];
               maxx = i;
@@ -1896,7 +1966,7 @@ void Mover1::FindGrass() {
     } else {
       for (i = x + range; i >= x - range; i--)
         for (j = y + range; j >= y - range; j--)
-          if (i > 0 && j > 0 && i < MaxX - 1 && j < MaxY - 1)
+          if (i > 0 && j > 0 && i < mapX - 1 && j < mapY - 1)
             if (place[i][j] == 0 && placeG[i][j] > max && placeG[i][j] < 9) {
               max = placeG[i][j];
               maxx = i;
@@ -1915,19 +1985,32 @@ void Mover1::FindGrass() {
 //
 //
 ///////////////////////////////////////////////
+// PORT: oryginal (game/mover1.cpp:1878) przekazywal pozycje krowy (x,y),
+// ale jej nie uzywal - wynik to ZAWSZE ostatnia owczarnia z tablicy (obie
+// petle bez porownania odleglosci). PORT wybiera najblizsza do (x,y)
+// (Manhattan, abs() z linii 37) - zgodnie z intencja autora.
 void FindSheed(int k, int x, int y, int *xm, int *ym) {
-  int i;
-  for (i = 0; i < 20; i++) {
+  int i, d, bl = 0;
+  for (i = 0; i < MaxBuildings; i++) {
     if (castle[k].b[i].type == 2 && castle[k].b[i].exist == 1) {
-      *xm = castle[k].b[i].x;
-      *ym = castle[k].b[i].y + 2;
+      d = abs(castle[k].b[i].x - x) + abs(castle[k].b[i].y - y);
+      if (!bl || d < bl) {
+        bl = d;
+        *xm = castle[k].b[i].x;
+        *ym = castle[k].b[i].y + 2;
+      }
     }
   }
-  for (i = 0; i < 20; i++) {
+  bl = 0;
+  for (i = 0; i < MaxBuildings; i++) {
     if (!place[castle[k].b[i].x][castle[k].b[i].y + 1] &&
         castle[k].b[i].type == 2 && castle[k].b[i].exist == 1) {
-      *xm = castle[k].b[i].x;
-      *ym = castle[k].b[i].y + 2;
+      d = abs(castle[k].b[i].x - x) + abs(castle[k].b[i].y - y);
+      if (!bl || d < bl) {
+        bl = d;
+        *xm = castle[k].b[i].x;
+        *ym = castle[k].b[i].y + 2;
+      }
     }
   }
 }
@@ -1952,7 +2035,11 @@ void Mover1::Graze() {
       k = 1;
 
     if (placeG[xm][ym - 1] != 160) {
-      FindSheed(k, x, y, &xm, &ym);
+      // PORT: pomost int* (helpery sciezek) <-> long long (wspolrzedne mapy)
+      int pol_x = (int)xm, pol_y = (int)ym;
+      FindSheed(k, x, y, &pol_x, &pol_y);
+      xm = pol_x;
+      ym = pol_y;
     }
     xe = xm;
     ye = ym;
@@ -2027,7 +2114,11 @@ void Mover1::Run2() // krowy
           int k = 0;
           if (IFF == 2)
             k = 1;
-          FindSheed(k, x, y, &xm, &ym);
+          // PORT: pomost int* (helpery sciezek) <-> long long (wspolrzedne)
+          int pol_x = (int)xm, pol_y = (int)ym;
+          FindSheed(k, x, y, &pol_x, &pol_y);
+          xm = pol_x;
+          ym = pol_y;
         }
         xe = xm;
         ye = ym;
@@ -2068,7 +2159,7 @@ void Mover1::Run2() // krowy
       k = 1;
 
     if (placeG[xm][ym - 1] != 160) {
-      for (int i = 0; i < 20; i++) {
+      for (int i = 0; i < MaxBuildings; i++) {
         if (castle[k].b[i].type == 2 && castle[k].b[i].exist == 1) {
           xm = castle[k].b[i].x;
           ym = castle[k].b[i].y + 2;
@@ -2095,14 +2186,21 @@ void Mover1::SetEnd(int x0, int y0) {
     x0 = 1;
   if (y0 == 0)
     y0 = 1;
-  if (y0 > MaxY - 2)
-    y0 = MaxY - 2;
-  if (x0 > MaxX - 2)
-    x0 = MaxX - 2;
+  if (y0 > mapY - 2)
+    y0 = mapY - 2;
+  if (x0 > mapX - 2)
+    x0 = mapX - 2;
 
   if (!type) {
-    if ((placeG[x0][y0] == 163 && place[x0][y0 - 1] < 512) ||
-        (place[x0][y0] < 512 && placeG[x0][y0] > 157 && placeG[x0][y0] < 166)) {
+    // PORT: maskowe progi nr - nasza obora to IFF 1 (stare <512 nie dziala
+    // z int64); pola budynkow wroga dalej sa "nie nasze". Podwojne nawiasy:
+    // clang -Wlogical-op-parentheses nie lubi mieszaja || z && bez grup
+    if ((placeG[x0][y0] == 163 &&
+         (place[x0][y0 - 1] < 512 ||
+          (POL_NRENC(place[x0][y0 - 1]) && NR_IFF(place[x0][y0 - 1]) == 1))) ||
+        ((place[x0][y0] < 512 ||
+          (POL_NRENC(place[x0][y0]) && NR_IFF(place[x0][y0]) == 1)) &&
+         placeG[x0][y0] > 157 && placeG[x0][y0] < 166)) {
       for (int i = x0 - 3; i < x0 + 1; i++)
         for (int j = y0; j < y0 + 3; j++) {
           if (placeG[i][j] == 163) {
@@ -2320,9 +2418,9 @@ void Mover1::Show() {
   place[x][y] = nr;
   if (IFF == 1) {
     for (i = -s_range; i <= s_range; i++) {
-      if (x + i > 0 && x + i < MaxX)
+      if (x + i > 0 && x + i < mapX)
         for (j = -s_range; j <= s_range; j++) {
-          if (y + j > 0 && y + j < MaxY && !(placeN[x + i][y + j])) {
+          if (y + j > 0 && y + j < mapY && !(placeN[x + i][y + j])) {
             if ((i != -s_range || j != -s_range) &&
                 (i != -s_range || j != s_range) &&
                 (i != s_range || j != -s_range) &&
@@ -2389,7 +2487,10 @@ void Building::Init(int x0, int y0, int t, int iff, int Nr) {
     hp = maxhp;
     k = 137 + (type - 1) * 20;
   }
-  nr = iff * 256 + Nr * 10;
+  // PORT: int64-owe kodowanie nr (stare iff*256+Nr*10 nie mialo miejsca):
+  // bity 4..27 numer budynku, bity 0..3 slot pol 3x3 (nr..nr+3 dziala bez
+  // zmian), bity 28..29 IFF-1, bit 30 NR_ENC (znacznik "zakodowany nr")
+  nr = NR_ENC | ((long long)(iff - 1) << 28) | ((long long)Nr << 4);
   faza = 0;
   for (i = 0; i < 6; i++) {
     m[i].exist = 0;
@@ -2402,7 +2503,7 @@ void Building::Init(int x0, int y0, int t, int iff, int Nr) {
   if (IFF == 1) {
     for (j = -2; j < 5; j++)
       for (i = -2; i < 5; i++) {
-        if (x + i > 0 && y + j > 0 && x + i < MaxX && y + j < MaxY)
+        if (x + i > 0 && y + j > 0 && x + i < mapX && y + j < mapY)
           if (!placeN[x + i][y + j])
             placeN[x + i][y + j] = 1;
       }
@@ -2509,7 +2610,7 @@ void Building::Run() {
         if (castle[1].m[post].type && castle[1].m[post].type < 10)
           castle[1].m[post].drange = 7;
       }
-      for (int build = 0; build < 20; build++) {
+      for (int build = 0; build < MaxBuildings; build++) {
         for (post = 0; post < 6; post++) {
           if (castle[1].b[build].m[post].type)
             castle[1].b[build].m[post].drange = 7;
@@ -2607,6 +2708,11 @@ void Building::Run() {
 
 void Building::Prepare(int X, int Y, int typ) {
   int i;
+  // PORT: petla nad MaxBuildings co klatke - niebudynki sa od razu pomijane
+  // (w oryginale przy 20 slaow, przy 65536 bez straznika by bylo 0.4M wywolan
+  // jednostek na zamek na klatke)
+  if (!exist)
+    return;
   for (i = 0; i < 6; i++)
     m[i].Prepare(X, Y, typ);
 }
@@ -2615,6 +2721,10 @@ void Building::Prepare(int X, int Y, int typ) {
 
 void Building::ShowS(int Xs, int Ys, int what) {
   int i;
+  // PORT: petla nad MaxBuildings co klatke - niebudynki sa od razu pomijane
+  // (w oryginale przy 20 slotach, przy 65536 to 0.4M sprawdzen na zamek)
+  if (!exist)
+    return;
   if (what == 1) //////////// pokaz obiekty  martwe
   {
     for (i = 0; i < 6; i++) {
@@ -2800,7 +2910,7 @@ void Castle::Init(int iff, int mlk) {
   maxmilk = mlk;
   for (i = 0; i < MaxUnitsInCastle; i++)
     m[i].Disable();
-  for (j = 0; j < 20; j++) {
+  for (j = 0; j < MaxBuildings; j++) {
     b[j].exist = 0;
     for (i = 0; i < 6; i++)
       b[j].m[i].Disable();
@@ -2810,7 +2920,7 @@ void Castle::Init(int iff, int mlk) {
 void Castle::ShowS(int Xs, int Ys, int what) {
   int i;
   //////////// pokaz budynki i ich rycerzy
-  for (i = 0; i < 20; i++)
+  for (i = 0; i < MaxBuildings; i++)
     b[i].ShowS(Xs, Ys, what);
 
   if (what == 1) //////////// pokaz obiekty  martwe
@@ -2838,7 +2948,7 @@ void Castle::ShowS(int Xs, int Ys, int what) {
 void Castle::Prepare(int X, int Y, int typ) {
   int i;
   // przygotuj budynki i ich rycerzy
-  for (i = 0; i < 20; i++) {
+  for (i = 0; i < MaxBuildings; i++) {
     b[i].Prepare(X, Y, typ);
   }
 
@@ -2913,17 +3023,30 @@ void Castle::Run() {
     }
     if (command.command > 3) // budowa budynku
     {
-      int w;
-      w = 20;
-      for (i = 0; i < 20; i++)
-        if (!b[i].exist)
+      long long w;
+      w = MaxBuildings;
+      // PORT: pierwszy wolny slot z breakiem. Oryginal bez breaku dawal
+      // OSTATNI wolny - przy 20 slotach to 19, przy MaxBuildings=65536
+      // byloby to 65535, a Building::Init traktuje Nr>300 jako "od razu
+      // wybudowany" (znacznik pol poziomow z edytora) - budynki budzilyby
+      // sie gotowe, bez stadiow produkcji.
+      for (i = 0; i < MaxBuildings; i++)
+        if (!b[i].exist) {
           w = i;
+          break;
+        }
       i = command.command - 1;
       if (i > 5)
         i = 5;
-      if (milk < i * 200 + 50)
+      // PORT: komunikat zamiast cichej odmowy (user 2026-09-06: "po zbudowaniu
+      // kilkunastu budynkow nie mozna budowac wiecej bez zadnego komunikatu").
+      // ORYGINAL: cichy return w obu przypadkach.
+      if (milk < i * 200 + 50) {
+        strcpy(Msg.msg, "Za malo mleka !");
+        Msg.licznik = 20;
         return;
-      if (w < 20) {
+      }
+      if (w < MaxBuildings) {
         b[w].Init(command.x, command.y, command.command - 2, IFF, w);
         milk -= i * 200 + 50;
         if (Msg.dzwiek < 20) {
@@ -2936,6 +3059,12 @@ void Castle::Run() {
         for (int ii = -1; ii <= 3; ii++)
           for (int jj = -1; jj <= 3; jj++)
             Droga(command.x + ii, command.y + jj, 35);
+      } else {
+        // wszystkie miejsca zajete (b[1..19], b[0] = zamek glowny)
+        strcpy(Msg.msg, "Za duzo budynkow !");
+        Msg.licznik = 20;
+        Msg.X = command.x;
+        Msg.Y = command.y;
       }
     }
   }
@@ -2957,7 +3086,9 @@ void Castle::Run() {
   if (command.co == 1) // komendy dla modulow
   {
     class Mover1 *mm;
-    if (command.nrb < 20)
+    // PORT: znacznik zamku = MaxBuildings (stare nrb == 20 kolidowalo by
+    // z budynkiem o numerze 20 przy 65536 slotach)
+    if (command.nrb < MaxBuildings)
       mm = &b[command.nrb].m[command.nrm];
     else
       mm = &m[command.nrm];
@@ -2991,11 +3122,12 @@ void Castle::Run() {
     int pol_bx = 0, pol_by = 0;
     if (command.command == 8) {
       int pol_p = place[command.x][command.y];
-      if (pol_p > 255 && pol_p < 768) { // pole budynku (nr = IFF*256+Nr*10+off)
-        int pol_side = (pol_p >> 8) - 1;
-        int pol_nrb = (pol_p & 0xff) / 10;
-        if (pol_side >= 0 && pol_side < 2 && pol_nrb >= 0 && pol_nrb < 20 &&
-            castle[pol_side].b[pol_nrb].exist) {
+      // PORT: maskowe rozpoznanie budynku z oplotu (stare IFF*256+Nr*10+off)
+      if (POL_NRENC(pol_p) && !(pol_p & NR_CASTLE)) { // pole budynku / osoba
+        int pol_side = NR_IFF(pol_p) - 1;
+        long long pol_nrb = NR_BUILD(pol_p);
+        if (pol_side >= 0 && pol_side < 2 && pol_nrb >= 0 &&
+            pol_nrb < MaxBuildings && castle[pol_side].b[pol_nrb].exist) {
           pol_bx = castle[pol_side].b[pol_nrb].x;
           pol_by = castle[pol_side].b[pol_nrb].y;
           pol_split = 1;
@@ -3029,7 +3161,7 @@ void Castle::Run() {
           mm->SetTarget(place[command.x][command.y]);
       }
     }
-    for (bud = 0; bud < 20; bud++)
+    for (bud = 0; bud < MaxBuildings; bud++)
       for (post = 0; post < 6; post++) {
         mm = &b[bud].m[post];
         if (mm->wybrany) {
@@ -3062,8 +3194,9 @@ void Castle::Run() {
   // krow i jednostek) mogl przeskoczyc maxmilk, bo sprawdzano tylko
   // milk<maxmilk NA POCZATKU ticka; teraz dokladamy tylko do limitu
   if (milk < maxmilk) {
-    int pol_dodatek = 0;
-    for (i = 0; i < 20; i++)
+    // PORT: dokladanie do limitu bez integer overflow (int64 sumy)
+    long long pol_dodatek = 0;
+    for (i = 0; i < MaxBuildings; i++)
       pol_dodatek += b[i].Milk();
     for (i = 1; i < MaxUnitsInCastle; i++)
       if (!m[i].type)
@@ -3076,6 +3209,8 @@ void Castle::Run() {
   }
 
   // run units
+  // PORT: budynki dzielone na polowki jak w oryginale (10/10 przy 20), ale
+  // proporcjonalnie do MaxBuildings - kazdy budynek i tak biegnie co 2. klatke
   if (faza)
     faza = 0;
   else
@@ -3084,12 +3219,12 @@ void Castle::Run() {
   {
     for (i = 1; i < MaxUnitsInCastle / 2; i++)
       m[i].Run();
-    for (i = 0; i < 10; i++)
+    for (i = 0; i < MaxBuildings / 2; i++)
       b[i].Run();
   } else { //  lub budynki
     for (i = MaxUnitsInCastle / 2; i < MaxUnitsInCastle; i++)
       m[i].Run();
-    for (i = 10; i < 20; i++)
+    for (i = MaxBuildings / 2; i < MaxBuildings; i++)
       b[i].Run();
   }
   PlaceUsed = 0;
@@ -3102,7 +3237,7 @@ void Castle::DisableUnits() {
     mm = &m[post];
     mm->wybrany = 0;
   }
-  for (bud = 0; bud < 20; bud++)
+  for (bud = 0; bud < MaxBuildings; bud++)
     for (post = 0; post < 6; post++) {
       mm = &b[bud].m[post];
       mm->wybrany = 0;
@@ -3113,7 +3248,7 @@ void Castle::FreeUnits(void) {
   for (post = 1; post < MaxUnitsInCastle; post++) {
     m[post].Disable();
   }
-  for (bud = 0; bud < 20; bud++)
+  for (bud = 0; bud < MaxBuildings; bud++)
     for (post = 0; post < 6; post++) {
       b[bud].m[post].Disable();
     }

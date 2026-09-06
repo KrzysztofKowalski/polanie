@@ -7,8 +7,9 @@
 #include <gtest/gtest.h>
 
 // z src/unit_heal.cpp (linkowany do binarki testow jako build/unit_heal.o)
-int POL_HealThreshold(int maxmilk);
-int POL_HealStep(int hp, int maxhp, int milk, int *milkOut);
+long long POL_HealThreshold(long long maxmilk);
+long long POL_HealStep(int hp, int maxhp, long long milk,
+                       long long *milkOut);
 int POL_CowHealStep(int hp, int maxhp);
 
 // POL_UnitHealTick operuje na globalnym zamku z game/mover1.cpp, ktorego nie
@@ -21,25 +22,25 @@ Mover1::~Mover1(void) {}
 class Castle castle[2];
 
 TEST(UnitHeal, PelneHpNieLeczyINieZjadaMleka) {
-  int milk = 500;
+  long long milk = 500;
   EXPECT_EQ(POL_HealStep(100, 100, 500, &milk), 100);
   EXPECT_EQ(milk, 500); // mleko nietkniete
 }
 
 TEST(UnitHeal, RannaPrzyZerowymMlekuNieLeczy) {
-  int milk = 0;
+  long long milk = 0;
   EXPECT_EQ(POL_HealStep(40, 100, 0, &milk), 40);
   EXPECT_EQ(milk, 0);
 }
 
 TEST(UnitHeal, RannaZMlekiemLeczyIZjadaMleko) {
-  int milk = 750;
+  long long milk = 750;
   EXPECT_EQ(POL_HealStep(40, 100, 750, &milk), 41);
   EXPECT_EQ(milk, 749);
 }
 
 TEST(UnitHeal, OstatniPunktHpDochodziDoMaxhp) {
-  int milk = 10;
+  long long milk = 10;
   EXPECT_EQ(POL_HealStep(99, 100, 10, &milk), 100); // clamp do maxhp
   EXPECT_EQ(milk, 9);                               // mleko pobrane za ten hp
 }

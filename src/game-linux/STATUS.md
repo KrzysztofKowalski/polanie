@@ -1216,3 +1216,95 @@ POL_CRT=1 POL_VIDEO=gpu ./pol2 4  # + efekt CRT (scanlines/barrel/winieta)
 - **BUG „stan po zaladowaniu" — root cause (fix main 381fac9 / official 927bbc2, push 8c107b6..927bbc2, md5 0708140a):** blok mleka (ramka drewno[2]+Bar13h+znacznik) byl rysowany W SRODKU malowania panelu (ShowSelected/if showAll ~825-1094), a po nim kolejne malowania cyklu (ramka drewno[2] pomalowana ponownie w nastepnym przebiegu + ShowSelectionPreview (tlo drewno[1] 278..309×7..27 + tlo prawego paska) kładły wierzch na wypełnieniu → widoczna tylko prawa 4-px kolumna wypełnienia (310..313), lewa czesc 299..309 zaslonieta drewnem. Fix: blok mleka + ShowSelectionPreview przeniesione na SAMO koniec malowania panelu (po ShowBattleMap / tekstach, przed myszka) — nic pozniej nie maluje (299..313, 9..149).
 - **Retest usera czeka:** (1) po zaladowaniu: pasek mleka pelna szerokosc 15 px, pelny magazyn = szczyt z kreska na gorze; (2) reszta testu 5 pkt: pasek prawy z odstepem, realtime przy srodku suwaka + 600 Hz, DRI_PRIME=1 w logu run_port.sh, napisy w Opcjach.
 - **Otwarte (czeka na decyzje usera):** !selectM->type == 8/9 (martwe porownania Watcomu); selectM b[b].m[p] vs j=20/i=20; dokladny uklad „4 paskow CD"; layout CD tarczy (275,39); publikacja DRI_PRIME do official/scripts/run.sh (do publikacji czy nie).
+
+## Wieczor 2026-09-06: retest po 806369d - 3 zgloszenia usera (edycje bez commita)
+
+User: (1) "mleko wybija dalej - zepsute skalowanie paska", (2) "opcje dobre
+poza tekstem Utwór out of place", (3) "po zbudowaniu kilkunastu budynkow nie
+mozna budowac wiecej bez zadnego komunikatu".
+
+1) PEASEK mleka: skala WZGLEDNA z 381fac9 (milk*141/maxmilk + znacznik zawsze
+   u gory) skasowana - przy milk>=maxmilk wypelniala cala ramke 141 px, a
+   czerwony znacznik (zaslaniany przez okienko portretu x299..309) byl
+   widoczny tylko w 310..313 - wygladalo jak przepelnienie. WROT DO
+   ORYGINALU (game/battle.cpp:621-634): stala skala 0-1410 (milk/10, max
+   141 px) i kreska limitu na wlasnej wysokosci (150-maxmilk/10; przy
+   maxmilk>1260 kreski brak). Limit mleka trzyma clamp (PORT, src/mover1.cpp
+   "zbierz mleczko", doklada tylko do maxmilk).
+2) Etykieta "Utwór": padding 35 spacji (mierzone pod font CD 8 px) przy
+   6-px foncie portu docisnela napis do ramki przycisku X (170,6)-(196,26).
+   Fix: "Utw%r" rysowany osobno (215,9)/(216,9) - lewa krawedz dwoch
+   czarnych ramek (215,39)/(260,39), etykieta nad nimi. Reszta etykiet OK.
+3) Budynki: Castle::Run (src/mover1.cpp:2914-2935) - oryginalny kod:
+   if (milk < i*200+50) return;  (za malo mleka - rozkaz czeka)
+   if (w < 20) { b[w].Init(...) } - w = wolny slot b[1..19] (b[0]=zamek,
+   petla bez break - bierze ostatni wolny); przy braku slotu CICHE nic
+   (ruiny exist=2 slotu nie zwalniaja). Fix: komunikaty
+   "Za malo mleka !" (milk) i "Za duzo budynkow !" (brak slota),
+   Msg.msg + Msg.licznik=20 (+ Msg.X/Y dla wariantu slota).
+
+- **Edycje (4 bloki, 2 pliki)** wykonane przez agenta af8fe2a24140076dc
+  i zweryfikowane (mleko -> skala oryginalna 0-1410, kreska limitu na
+  wlasnej wysokosci 150-maxmilk/10, brak przy maxmilk>1260; „Utw%r"
+  osobno (215,9)/(216,9); komunikaty „Za malo mleka !" /
+  „Za duzo budynkow !" w Castle::Run; FindSheed — szczegoly nizej):
+  1. **src/battle.cpp** (ShowSelected, blok mleka ~1063-1084): stala skala
+     ORYGINALNA - milk/10 max 141 px + kreska limitu na wlasnej wysokosci
+     150-maxmilk/10 (maxmilk>1260 = brak kreski, jak w oryginale);
+     pol_milk/pol_max/pol_h -> pol_mlk; ShowSelectionPreview po bloku
+     zostaje.
+  2. **src/battle.cpp** (Options ~3505): "Utw%r" rysowany osobno -
+     OutText13h(215,9,"Utw%r",1) i (216,9,...,kolorTekstu) zamiast paddingu
+     35 spacji; reszta etykiet bez zmian.
+  3. **src/mover1.cpp** (Castle::Run ~2934): budowa budynku - "Za malo
+     mleka !" (Msg.msg + Msg.licznik=20 + return) i "Za duzo budynkow !"
+     (else, + Msg.X/Y) zamiast cichej odmowy oryginalu.
+  4. **src/mover1.cpp** (FindSheed ~1922): FIX KOMPILACJI - oryginal
+     przyjmowal x,y krowy ale ich nie uzywal, clang -Werror
+     (patrz podpunkt nizej).
+- **FindSheed — blokada kompilacji -Werror i wersja finalna:** po dotknieciu mover1.cpp build usera wywalil sie na starym `-Wunused-parameter` (x,y nieuzywane w ciele — wierna kopia oryginalu game/mover1.cpp:1878, Watcom nie ostrzegal). Pierwsza propozycja fixu (usuniete nazwy parametrow) zostala zastapiona decyzja oraz uwaga usera: „moze trzeba dodać ten parametr żeby był używany zamiast usuwać" — **FindSheed: x,y SA uzywane** — wybor NAJBLIZSZEJ owczarni do pozycji krowy (oryginal: wynik = ZAWSZE ostatnia owczarnia w tablicy; Manhattan, abs() z linii 37), dwie petle jak w oryginale (druga = najblizsza z wolnym miejscem !place[][], pierwszenstwo; bl=0 reset przed druga pętla), wywolania FindSheed(k,x,y,&xm,&ym) bez zmian (1968, 2043). Blad istnial w drzewie PRZED edycjami 1-3 (HEAD:1918 identyczny — tam tez nieuzywane x,y; diff -w PRZED fixem nie mial hunka przy 1918).
+- Weryfikacja: pol_mlk = 12 trafien (1073-1084, wszystkie w bloku mleka —
+  notatka wyzej mowila "4", faktycznie nazwa uzyta 12 razy);
+  pol_h|pol_max = 0. OutText13h z "Utw%r" = dokladnie 2 wiersze:
+  (215,9,...,1) i (216,9,...,kolorTekstu). "Za malo mleka" i
+  "Za duzo budynkow" = po 1 trafieniu (2941, 2960). `git diff -w` =
+  dokladnie 5 hunkow (battle.cpp: mleko, etykiety = battle x2;
+  mover1.cpp: FindSheed, budowa rozbita na 2 hunki 2934/2955 przez
+  nietkniete srodkowe linie = mover x3) + 1 hunk CRLF/LF przed-stanowy
+  (stara linia 2504, czysto biale znaki, znika w diff -w, wplywu na
+  kompilacje brak; nie z edycji — plik mial juz zanieczyszczenia EOL).
+  ShowSelectionPreview, wylaczenia FindSheed i reszta plikow nietkniete.
+- Status: edycje 1-4 gotowe (4 pliki-hunki, 2 pliki), BEZ COMMITU —
+  user: „zrob edycje tylko i czekaj"; ZADEN git add/commit/push nie
+  wykonano (tylko diff/show/status odczyt); make/kompilacje nie
+  uruchamiane (zakaz — user odbiera build; jedyny blad z kompilacji
+  usera to FindSheed — pre-existing, patrz podpunkt wyzej). Po retescie
+  usera (build + gra: pasek mleka pelny, opcje, komunikaty budowy,
+  kompilacja czysta) -> commit + mirror official + push.
+
+## Wieczor 2026-09-06 (cz. 2): limity mapy/budynkow i int64
+
+- **Plan limitów WDROŻONY (2026-09-06)** — szczegoly w raporcie
+  `raporty/limity-mapy-budynki-int64-2026-09-06.md` (agent go napisal)
+  i w planie `game-linux/PLAN-limity-mapy-budynki-2026-09-06.md`
+  (dopisek B+.2):
+  - **Budynki**: b[20] -> b[MaxBuildings=65536] (game/mover.h); chatki
+    < MaxBuildings; drzewa < 200000.
+  - **Mapa**: MaxX/MaxY = MaxMapSize = 4096; rzeczywisty rozmiar
+    `long long mapX/mapY` z fallbackiem 66x66 i nowym naglowkiem ascii
+    `X####Y####!`; wszystkie petle mapy po mapX/mapY; minimapa w skali
+    (dla 66x66 1:1).
+  - **Liczniki**: licznik/licznik2 long long (reset na 10000 usuniety).
+  - **Kodowanie nr maskowe**: NR_ENC b30 / NR_CASTLE b27 / IFF b28-29 /
+    indeks b4-26 / slot b0-3.
+  - **Save nowy 8B** (mapX/mapY, place[][], milk/maxmilk) + licznik
+    budynkow + POL_NrToNew migrujacy stare 4B; BFS na stercie
+    POL_KolejkaInit (POL_KOL_MAX; wywolywane tez w LoadGame).
+- **Retest usera 2026-09-06** (po zmustrowanym make — build przeszedl,
+  gra dzialala): **BUG — odczyt NAJNOWSZEGO save'a (nowy format)
+  crashuje**; naprawa w toku u agenta (battle.cpp; przyczyna
+  nieustalona w chwili pisania notatki). Limity pozostaja w wersji
+  (wdrozenie stoi, naprawa czytania save'a w toku; zakres bez zmian).
+- **Zakres zmian**: edytor `editor/` NIE objety (nadal b[20]/66x66,
+  poziomy binarne 26+ bez naglowka = 66x66); save'y z martwych buildow
+  (np. save.004 z 14:01) nie sa czytelne.

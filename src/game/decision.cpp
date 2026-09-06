@@ -25,7 +25,7 @@ void Attack() {
   }
   if (mem.delay > 1000) // jezeli nie mina zadany czas
   {
-    if (mem.aindex > 19) {
+    if (mem.aindex >= MaxBuildings) {
       mem.aindex = 0;
       return;
     }
@@ -92,7 +92,7 @@ void Decision() {
   //-----przyrost mleka------
   mem.c->milk += mem.dmilk;
   //-----odbudowa-----------------------
-  for (i = 0; i < 20; i++) {
+  for (i = 0; i < MaxBuildings; i++) {
     if (mem.c->b[i].exist == 1 && mem.c->b[i].hp &&
         mem.c->b[i].hp < mem.c->b[i].maxhp) {
       int xx, yy, k = 0;
@@ -130,7 +130,7 @@ void Decision() {
   {
     if (!mem.index) {
       int j = 0;
-      for (i = 0; i < 19; i++) {
+      for (i = 0; i < MaxBuildings; i++) {
         if (mem.c->b[i].type == 2) // obora
         {
           for (int k = 0; k < 3; k++) {
@@ -143,7 +143,7 @@ void Decision() {
         mem.c->milk = 500;
     }
     char typ;
-    if (mem.index > 19) {
+    if (mem.index >= MaxBuildings) {
       mem.index = 0;
       mem.faza = 11;
       return;
@@ -172,7 +172,7 @@ void Decision() {
   if (mem.faza == 11) // budowa   postaci
   {
     char typ;
-    if (mem.index > 19) {
+    if (mem.index >= MaxBuildings) {
       mem.index = 0;
       mem.faza = 2;
       return;
@@ -223,7 +223,7 @@ void Decision() {
   //-======================================================================
   if (mem.faza == 2) // wyslanie postaci
   {
-    if (mem.index > 19) {
+    if (mem.index >= MaxBuildings) {
       mem.index = 0;
       mem.faza = 3;
       return;
