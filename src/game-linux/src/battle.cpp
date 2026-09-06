@@ -148,8 +148,9 @@ int ScreenX = 3, ScreenY = 1;
 
 //---dane dla modulu decyzyjnego---------------------
 struct Mem {
-  char index;               // nr budynku
-  char aindex;              // nr budynku do ataku
+  int index;                // PORT: int zamiast char (clang -Wchar-subscripts);
+                            // nr budynku 0-19, semantyka bez zmian
+  int aindex;               // PORT: jw. - nr budynku do ataku (0-19)
   int faza;                 // 0-inicjacja 1-budowa 2- wyslij
                             // 3-czekanie
                             // 4-atak
@@ -1960,9 +1961,11 @@ void DispatchEvent() {
       Cmd[master].nrm = select.nrm;
       // strcpy(Msg.msg,"Stehe !");
       strcpy(Msg.msg, "Stoj$ !");
-      if (!selectM->type == 8)
+      // PORT: fix - (!selectM->type == 8) w Watcomie to ((!type)==8), zawsze
+      // false (martwy kod); ma byc "type == 8" (ryk niedzwiedzia / syczenie weza)
+      if (selectM->type == 8)
         strcpy(Msg.msg, "GROARRR !");
-      if (!selectM->type == 9)
+      if (selectM->type == 9)
         strcpy(Msg.msg, "Ssssss...");
       Msg.licznik = 20;
       /////////////////
@@ -2138,9 +2141,11 @@ void DispatchEvent() {
       strcpy(Msg.msg, "Id$ !");
       if (!selectM->type)
         strcpy(Msg.msg, "MUUUU !");
-      if (!selectM->type == 8)
+      // PORT: fix - (!selectM->type == 8) w Watcomie to ((!type)==8), zawsze
+      // false (martwy kod); ma byc "type == 8" (ryk niedzwiedzia / syczenie weza)
+      if (selectM->type == 8)
         strcpy(Msg.msg, "GROARRR !");
-      if (!selectM->type == 9)
+      if (selectM->type == 9)
         strcpy(Msg.msg, "Ssssss...");
       Msg.licznik = 20;
       /////////////////
@@ -2201,9 +2206,11 @@ void DispatchEvent() {
         strcpy(Msg.msg, "Do ataku !!!");
       if (!selectM->type)
         strcpy(Msg.msg, "MUUUU !");
-      if (!selectM->type == 8)
+      // PORT: fix - (!selectM->type == 8) w Watcomie to ((!type)==8), zawsze
+      // false (martwy kod); ma byc "type == 8" (ryk niedzwiedzia / syczenie weza)
+      if (selectM->type == 8)
         strcpy(Msg.msg, "GROARRR !");
-      if (!selectM->type == 9)
+      if (selectM->type == 9)
         strcpy(Msg.msg, "Ssssss...");
       Msg.licznik = 20;
       /////////////////

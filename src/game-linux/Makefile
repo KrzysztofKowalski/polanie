@@ -4,7 +4,7 @@
 #   make run        - buduje i uruchamia z danymi gry
 # Skala: ./pol2 [n]  (1 px gry = n x n fizycznych px; bez n = auto/fullscreen)
 
-# PORT: toolchain clang + C++23 + wlaczone warningi (cel: zero warningow).
+# PORT: toolchain clang + C++23 + warningi jako bledy (-Werror; wymaganie usera 2026-09-06 - zero warningow).
 # PORT: CXX = clang++ (twardo, nie ?=) - GNU make ma wbudowana zmienna CXX=g++
 # (origin "default"), ktora wygrywa z ?= (to nadpisuje tylko niezdefiniowane).
 # Build pod GCC nadal mozliwy, np.:
@@ -13,7 +13,7 @@ CXX      = clang++
 # PORT: Watcom mial plain char bez znaku - znaczniki placeN 190-227 (naprawa
 # 220-227, drzewa 200, palisada/most >225) musza byc > 127, inaczej logika
 # naprawy/budowy jest martwa (220 czytane jako -36) => -funsigned-char MUSI zostac
-CXXFLAGS ?= -std=c++23 -O1 -g -Wall -Wextra -funsigned-char
+CXXFLAGS ?= -std=c++23 -O1 -g -Wall -Wextra -Werror -funsigned-char
 SDL3FLAGS := $(shell pkg-config sdl3 --cflags 2>/dev/null || echo -I/usr/include/SDL3)
 SDLLIBS  := $(shell pkg-config sdl3 --libs 2>/dev/null || echo -lSDL3)
 # PORT: muzyka S3M (port_audio.cpp) - libopenmpt; gdy brak w systemie,
