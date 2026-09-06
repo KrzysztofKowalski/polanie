@@ -279,7 +279,7 @@ static char polFaceBuf[16 * (32 * 21 + 6)];   // 16 kafli 32x21 (portret/budynek
 static char polGniazdoTlo[6 + 18 * 16];       // tlo gniazda 0 (274,18)-(291,33)
 // PORT: tla pod paskami hp/magii NA ZEWNATRZ kwadratu portretu (jak w CD):
 // lewy (272,7)-(275,27) - odpowiednik drewno[0] z CD (game/graphics.cpp:770),
-// prawy (310,7)-(313,8) - tylko 2 gorne wiersze, bo dolna czesc (y9-27) lezy na
+// prawy (311,7)-(314,8) - tylko 2 gorne wiersze, bo dolna czesc (y9-27) lezy na
 // ramce paska mleka (299,9)-(314,150) i jest odnawiana co klatke przez
 // PutImage13h(299,9,drewno[2])
 static char polPasekTloL[6 + 4 * 21];         // tlo lewego paska hp (4x21)
@@ -303,11 +303,12 @@ static void InitSelectionPreview(void) {
 
 // PORT: pionowy pasek 4x21 NA ZEWNATRZ kwadratu portretu (okienko
 // (278,7)-(309,27)), jak w wersji CD: lewy (272,7)-(275,27) po lewej stronie
-// okienka (x=272), prawy (310,7)-(313,27) na prawej krawedzi ramki paska
-// mleka (299,9)-(314,150) (x=310). Bez czarnego toru - wymaz przez tlo z
-// wyciecia (odpowiednik drewno[0] z CD, game/graphics.cpp:770; prawy pasek
-// ma zapisane tylko 2 gorne wiersze, dolna czesc czysci ramka mleka co
-// klatke). Wypelnienie od dolu, 4 px szerokie, wiersze y7..27. Bar13h jest
+// okienka (x=272), prawy (311,7)-(314,27) na prawej krawedzi ramki paska
+// mleka (299,9)-(314,150) (x=311), odstep 1 px (kolumna 310). Bez czarnego
+// toru - wymaz przez tlo z wyciecia (odpowiednik drewno[0] z CD,
+// game/graphics.cpp:770; prawy pasek ma zapisane tylko 2 gorne wiersze,
+// dolna czesc czysci ramka mleka co klatke). Wypelnienie od dolu, 4 px
+// szerokie, wiersze y7..27. Bar13h jest
 // nieinkluzywny (image13h.cpp: length=x2-x1, petla j<y2): Bar13h(x,...,x+4)
 // wypelnia x..x+3, Bar13h(...,7,...,28) wypelnia wiersze 7..27. Kolory jak
 // przy paskach na mapie (mover1.cpp:2259-2272): zdrowie
@@ -357,7 +358,7 @@ static void ShowSelectionPreview(void) {
     // okienka (drewno[1], jak w edytorze) i ramka gniazda 0: panel wraca do
     // widoku dyskietkowego
     PutImage13h(272, 7, polPasekTloL, 0);
-    PutImage13h(310, 7, polPasekTloP, 0);
+    PutImage13h(311, 7, polPasekTloP, 0);
     PutImage13h(278, 7, drewno[1], 0);
     PutImage13h(274, 18, Buttons[3], 0);
     return;
@@ -380,8 +381,9 @@ static void ShowSelectionPreview(void) {
   }
   // PORT: paski NA ZEWNATRZ kwadratu portretu (okienko (278,7)-(309,27)), jak
   // w wersji CD - lewy (272,7)-(275,27) 4 px z zapisanym tlem (odpowiednik
-  // drewno[0], game/graphics.cpp:770), prawy (310,7)-(313,27) na prawej
-  // krawedzi ramki mleka (299,9)-(314,150), bez czarnego toru. Tlo okienka
+  // drewno[0], game/graphics.cpp:770), prawy (311,7)-(314,27) na prawej
+  // krawedzi ramki mleka (299,9)-(314,150) (x=311), odstep 1 px (kolumna
+  // 310), bez czarnego toru. Tlo okienka
   // (drewno[1]) rysowane co klatke nie nachodzi na pasy (x278-309), a ramka
   // mleka (299,9) i tak odnawia y9-27 pod prawym pasem. Lewy: zdrowie.
   // Prawy: magia TYLKO dla jednostek z magic > 0 (kaplanka/kaplan/mag);
@@ -391,16 +393,16 @@ static void ShowSelectionPreview(void) {
   if (tw == 2) {
     PolPasekPanel(272, polPasekTloL, selectB->hp, selectB->maxhp,
                   PolKolorHp(selectB->hp, selectB->maxhp));
-    PolPasekPanel(310, polPasekTloP, selectB->hp, selectB->maxhp,
+    PolPasekPanel(311, polPasekTloP, selectB->hp, selectB->maxhp,
                   PolKolorHp(selectB->hp, selectB->maxhp));
   } else {
     PolPasekPanel(272, polPasekTloL, selectM->hp, selectM->maxhp,
                   PolKolorHp(selectM->hp, selectM->maxhp));
     if (selectM->magic)
-      PolPasekPanel(310, polPasekTloP, selectM->magic,
+      PolPasekPanel(311, polPasekTloP, selectM->magic,
                     dmagic[selectM->exp >> 4], LightBlue);
     else
-      PolPasekPanel(310, polPasekTloP, 0, 0, 0);
+      PolPasekPanel(311, polPasekTloP, 0, 0, 0);
   }
 }
 //==============================================================================
@@ -441,7 +443,7 @@ void Battle(int type) // 1-single start   0-rs   2-loaded
     ShowBackground();
     GetImage13h(274, 18, 292, 34, polGniazdoTlo); // PORT: tlo gniazda 0 z tla panelu (do wymazania tarczy "Stoj" przy podgladzie)
     GetImage13h(272, 7, 276, 28, polPasekTloL);   // PORT: tlo pod lewym paskiem hp (odpowiednik drewno[0] z CD, game/graphics.cpp:770)
-    GetImage13h(310, 7, 314, 9, polPasekTloP);    // PORT: tlo pod prawym paskiem, 2 wiersze nad ramka mleka (dol czysci ramka co klatke)
+    GetImage13h(311, 7, 315, 9, polPasekTloP);    // PORT: tlo pod prawym paskiem, 2 wiersze nad ramka mleka (dol czysci ramka co klatke)
     ShowPanel(0, 0, 0, 0, 0);
     if (Map)
       PressButton(16, 2);
@@ -503,16 +505,16 @@ void Battle(int type) // 1-single start   0-rs   2-loaded
     Msg.ddzwiek = 0;
     do {
       do {
-        // PORT: full speed (skrajny prawy suwaka, speed==0) w oryginale
-        // Watcom nie czekal wcale - warunek "licznik - licznik2 < 0" byl
-        // zawsze falszywy, wiec kroki symulacji szly z predkoscia CPU
-        // (kilkadziesiat-kilkaset razy za szybko na nowych maszynach,
-        // busy-loop dlawil rdzen). Teraz skrajny prawy czeka jak przy 1
-        // (speedTicks w warunku petli czekania nizej) i robi 2 kroki
-        // symulacji na tick zegara (36 kroki/s = 2x tempo nominalne);
-        // pozycje 1-5 bez zmian.
-        int ileKrokow = speed ? 1 : 2;      // PORT: full speed = 2 kroki/tick
-        int speedTicks = speed ? speed : 1; // PORT: full speed czeka jak 1
+        // PORT: skala suwaka predkosci: lewy = wolno (krok co N tikow), srodek
+        // ~50% = realtime (1 krok/tik 18.2 Hz), prawy = 2x i full (limit 600 Hz:
+        // 33 kroki * 18.2 Hz = 600). W oryginale Watcom skrajny prawy nie czekal
+        // wcale i krokki szly z predkoscia CPU (tysiace Hz) - user: limit 600 Hz
+        // i realtime w srodku suwaka (bylo przy ~90%).
+        static const int pol_tiki[6] = {5, 3, 2, 1, 1, 1};  // tiki na krok (slot 0=lewy)
+        static const int pol_kroki[6] = {1, 1, 1, 1, 2, 33}; // kroki na tik
+        int pol_slot = 5 - speed;
+        int speedTicks = pol_tiki[pol_slot];
+        int ileKrokow = pol_kroki[pol_slot];
         for (int nrKroku = 0; nrKroku < ileKrokow; nrKroku++) {
           decisionFaza++;
           if (decisionFaza == 6) {
@@ -696,11 +698,10 @@ void Battle(int type) // 1-single start   0-rs   2-loaded
           // portowy ma 200 ms), a wyjście z czekania jest i tak warunkiem
           // na liczniku taktowanym pol_tick_cb (src/menegdma.cpp) - sen
           // nie doryfuje, tempo logiki zostaje 18.2 Hz. Warunek czeka na
-          // speedTicks = speed ? speed : 1 (policzone raz na tick, nad
-          // pętlą for): full speed (skraj prawy, speed==0) w Watcom czekał
-          // na warunek "nigdy nieprawdziwy" (< 0), czyli nie czekał wcale;
-          // teraz czeka jak przy 1, a krok symulacji robi się dwa razy
-          // (pętla for wyżej) - patrz komentarz przy pętli for.
+          // speedTicks z tabeli pol_tiki[slot] (policzone raz na tick, nad
+          // pętlą for): slot 0-5 wg skali suwaka - srodek (slot 3) = realtime
+          // (1 krok/tik), slot 4 = 2x, slot 5 = full (33 kroki, limit 600 Hz)
+          // - patrz komentarz przy pętli for.
           if (licznik - licznik2 < speedTicks)
             POL_WaitMs(2);
 
@@ -954,25 +955,30 @@ void ShowSelected() {
 
     ///////////// wypisz mleko /////////////////////////////////
     PutImage13h(299, 9, drewno[2], 0); //???
-    // PORT: fix "pasek poza limitem" - bialy pasek clamped tez do maxmilk
-    // (przyrost jednego ticka mogl przeskoczyc maksimum), a czerwony znacznik
-    // maksimum rysowany ZAWSZE przy maxmilk > 0 (w oryginale chowany przy
-    // maxmilk > 1260, wiec przy duzych maksimach pasek wygladal jak bez limitu)
-    int pol_milk = castle[master].milk;
-    if (pol_milk > 1410)
-      pol_milk = 1410;
+    // PORT: skala paska wzgledna do maxmilk - pelny magazyn = szczyt paska.
+    // Stala skala 0-1410 pol/zep.10 powodowala, ze limit z danych mapy
+    // (pl.maxmilk=(M-48)*200+50, battle.cpp:2547) wypadal na ~80-90% paska
+    // i mleko nie dobijalo do 100%. Teraz wysokosc = milk*141/maxmilk
+    // (maxmilk z danych mapy; limit u gory - znacznik LightRed na szczycie).
+    // Bez limitu (maxmilk=0) zostaje stara skala milk/10.
     int pol_max = castle[master].maxmilk; // 0 = bez limitu (bez znacznika)
-    if (pol_max > 0 && pol_milk > pol_max)
-      pol_milk = pol_max;
-    pol_milk /= 10;
-    if (pol_milk)
-      Bar13h(299, 150 - pol_milk, 314, 150, 255);
-    int pol_maxm = pol_max;
-    if (pol_maxm > 1410)
-      pol_maxm = 1410; // znacznik przyciety do szczytu paska
-    pol_maxm /= 10;
-    if (pol_maxm)
-      Bar13h(299, 150 - pol_maxm, 314, 151 - pol_maxm, LightRed);
+    int pol_milk = castle[master].milk;
+    if (pol_max > 0) {
+      if (pol_milk > pol_max)
+        pol_milk = pol_max;
+      int pol_h = pol_milk * 141 / pol_max;
+      if (pol_h > 141)
+        pol_h = 141;
+      if (pol_h)
+        Bar13h(299, 150 - pol_h, 314, 150, 255);
+      Bar13h(299, 9, 314, 10, LightRed); // znacznik limitu (szczyt paska)
+    } else {
+      if (pol_milk > 1410)
+        pol_milk = 1410;
+      pol_milk /= 10;
+      if (pol_milk)
+        Bar13h(299, 150 - pol_milk, 314, 150, 255);
+    }
 
     // PORT: podglad zaznaczonego obiektu w okienku panelu (feature wersji CD);
     // po pasku mleka, bo jego ramka drewno[2] (299,9) przykrywa prawy skraj
@@ -3493,7 +3499,10 @@ void Options(void) {
     if (lancuch[0] != NULL)
       PutImage13h(224, YY[i], lancuch[0], 0);
   }
-  /*
+  // PORT: wydanie dyskietkowe skomentowalo etykiety (znajdowaly sie tylko w
+  // zrodle; tlo ekranu 13 nie ma wklejonych napisow - dowod: ekran_13.png bez
+  // napisow), user prosil o przywrocenie. Znaki %r i $ to kodowanie
+  // Transform13h (Utw%r = Utwor, Dzwi$ki = Dzwieki) - zostaja oryginalne ciagi.
   OutText13h(19,9,"Mowa                                   Utw%r",1);
   OutText13h(19,42,"Dzwi$ki",1);
   OutText13h(19,76,"Muzyka",1);
@@ -3505,7 +3514,6 @@ void Options(void) {
   OutText13h(20,76,"Muzyka",kolorTekstu);
   OutText13h(20,108,"Szybkosc przewijania",kolorTekstu);
   OutText13h(20,142,"Szybkosc gry",kolorTekstu);
-  */
   MVol = getVolume();
   PutImage13h(XX[MVol], YY[0], guzik[0], 0);
   PutImage13h(XX[skroller], YY[1], guzik[1], 0);  // skroll
