@@ -1308,3 +1308,24 @@ mozna budowac wiecej bez zadnego komunikatu".
 - **Zakres zmian**: edytor `editor/` NIE objety (nadal b[20]/66x66,
   poziomy binarne 26+ bez naglowka = 66x66); save'y z martwych buildow
   (np. save.004 z 14:01) nie sa czytelne.
+
+## Noc 2026-09-06/07: audio MT32/WAV wdrozone + potwierdzenie renderu
+
+- **Wdrozenie**: abstrakcja POL_AudioBackend (audio_backend.h) + 3 backendy
+  (S3mBackend=libopenmpt default, SfzBackend=sfizz, WavMusicBackend=
+  FluidSynth+SF2 MT-32 Hedsound z WAV-jako-CD); --audioType=s3m|sfz|mt32|auto;
+  WAV-tor przed .mid (mt32-wav-map.ini opcjonalny, domyslne GRAF_NNN).
+  Commity: 259d392 (kod), 34be873 (skrypty scripts/audio/), 1f2c24c (notatki);
+  mirror official 2013574 PUSHED.
+- **Fixy root-cause**: bits w RIFF z i+22 (nie i+18); mix_cb memset przed
+  renderem (addytywne renderery akumulowaly — "VSCO niestabilne"); band vel
+  30..127 / CC7 50..90 (cisza -52..-71 dBFS); GRAF_002 petla orderow ->
+  maxRows + 3 read guards.
+- **POTWIERDZENIE USERA (2026-09-07)**: render audio dziala z nowymi
+  parametrami (eksport 18/18 WAV do ephemeral/mt32-wav, preview 3 tory,
+  RMS-primary normalizacja 18 dB + alimiter, --fx, --gain-db).
+- **Otwarte decyzje**: kMt32PresetOverride ZynDist GM 30->Harpsi 3 (GRAF_013),
+  GM 81 Schooldaze, GM 46 cymbal, --fx mt32 (reverb) vs off, GM 88 Fantasy.
+- **Brama fali 0**: int13h (natywne SDL3) + magic numbers -> komentarze +
+  zlib savegame + UX save lista/Ctrl+numery — CZEKA az user potwierdzi
+  kompilacje gry i muzyke w grze (--audioType=mt32).
