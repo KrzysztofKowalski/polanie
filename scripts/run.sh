@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Uruchomienie portu Polanie (ephemeral/pol2).
+# Uruchomienie portu Polanie (ephemeral/słowianie).
 #
 # Uzycie:
-#   bash scripts/run.sh [skala] [opcje pol2]
+#   bash scripts/run.sh [skala] [opcje słowianie]
 #     skala          - 1 px gry = n x n fizycznych px (np. 4); bez niej
 #                      okno 320x200
 #     --audioType=   - s3m (domyslnie) | sfz | auto
@@ -19,7 +19,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 EPHE="$ROOT/ephemeral"
-BIN="$EPHE/pol2"
+BIN="$EPHE/słowianie"
 
 [ -x "$BIN" ] || {
   printf 'BLAD: brak %s - najpierw: bash scripts/build.sh\n' "$BIN" >&2

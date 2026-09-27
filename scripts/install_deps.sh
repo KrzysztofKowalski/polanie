@@ -161,5 +161,5 @@ else
   exit 1
 fi
 echo "  bash scripts/install.sh   # dane gry -> ephemeral/"
-echo "  bash scripts/build.sh     # budowa portu -> ephemeral/pol2"
+echo "  bash scripts/build.sh     # budowa portu -> ephemeral/słowianie"
 echo "  bash scripts/run.sh       # uruchomienie gry"

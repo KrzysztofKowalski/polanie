@@ -4,7 +4,7 @@
 # Uzycie:
 #   bash scripts/build.sh
 #
-# Artefakty: ephemeral/build/ (obiekty), ephemeral/pol2 (binarka gry).
+# Artefakty: ephemeral/build/ (obiekty), ephemeral/słowianie (binarka gry).
 # Zrodla: src/game/ (oryginal, bez zmian) + src/game-linux/ (port).
 set -euo pipefail
 
@@ -12,7 +12,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SRC="$ROOT/src/game-linux"
 EPHE="$ROOT/ephemeral"
-BIN="$EPHE/pol2"
+BIN="$EPHE/słowianie"
 
 log() { printf '\n== %s ==\n' "$*"; }
 die() { printf 'BLAD: %s\n' "$*" >&2; exit 1; }
@@ -39,9 +39,9 @@ if ! pkg-config gtest >/dev/null 2>&1; then
 fi
 
 log "1/2 Kompilacja (make -C src/game-linux)"
-make -C "$SRC" -j4 BUILD="$EPHE/build" BIN="$EPHE/pol2"
+make -C "$SRC" -j4 BUILD="$EPHE/build" BIN="$EPHE/słowianie"
 
 log "2/2 Gotowe."
-echo "  binarka gry : ephemeral/pol2"
+echo "  binarka gry : ephemeral/słowianie"
 echo "  uruchomienie: bash scripts/run.sh"
 echo "  testy       : bash src/game-linux/run_tests.sh"

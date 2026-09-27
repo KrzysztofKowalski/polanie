@@ -47,7 +47,7 @@ Arch/Omarchy (automatycznie): `bash scripts/install_deps.sh`
 bash scripts/install.sh   # 1. pobiera dane gry z publicznego mirrora
                           #    (instalka polanie.zip: wolumeny ARJ przez 7z)
                           #    i ekstrahuje je do ephemeral/
-bash scripts/build.sh     # 2. buduje port do ephemeral/ (binarka ephemeral/pol2)
+bash scripts/build.sh     # 2. buduje port do ephemeral/ (binarka ephemeral/słowianie)
 bash scripts/run.sh       # 3. uruchamia grę
 ```
 
@@ -71,7 +71,7 @@ official/
   scripts/        install.sh, build.sh, run.sh
   ephemeral/      WSZYSTKO, co powstaje w czasie instalacji i budowy:
                   pobrane archiwa, rozpakowane dane, ekstrakt, obiekty,
-                  binarka pol2, check_assets. Gitignored — safe do skasowania.
+                  binarka słowianie, check_assets. Gitignored — safe do skasowania.
   README.md, LICENSE, NOTICE, .gitignore
 ```
 
